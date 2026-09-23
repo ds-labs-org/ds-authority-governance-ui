@@ -20,21 +20,31 @@ use crate::store::AppState;
 
 /// Builds the issuer-admin-api client for `config`.
 ///
-/// `endpoint` is deliberately left empty: `IssuerAdminApiClient`'s URL
-/// template is `{endpoint}{admin_api_path}/{version}/...`, and
-/// `admin_api_path` here is `config.issuer_admin_api_path` (this app's
-/// same-origin reverse-proxy prefix, e.g. `/api/issuer`) - passing it as
-/// `admin_api_path` rather than folding it into `endpoint` keeps the prefix
+/// `endpoint` is the page's own origin (`document_origin()`) -- NOT left
+/// empty. `IssuerAdminApiClient`'s URL template is
+/// `{endpoint}{admin_api_path}/{version}/...`; `admin_api_path` is
+/// `config.issuer_admin_api_path` (this app's same-origin reverse-proxy
+/// prefix, e.g. `/api/issuer`), kept separate from `endpoint` so it stays
 /// configurable per deployment instead of hardcoded, per the same pattern
 /// `Config.identity_api_path` already documents for `IdentityHubClient`.
-fn issuer_admin_api_client(config: &Config) -> IssuerAdminApiClient {
-    IssuerAdminApiClient::new(
+/// Leaving `endpoint` empty (as this originally did) produces a bare
+/// `/api/issuer/v1beta/...` string with no scheme or host -- `reqwest`
+/// rejects that outright (`Url::parse` requires an absolute URL; it does
+/// NOT hand a schemeless string to the browser to resolve, the same
+/// mistake `config::fetch_config` made and fixed first). Confirmed the
+/// other two views (`holders.rs`, `credential_definitions.rs`) already
+/// got this right via their own local `browser_origin()`/`current_origin()`
+/// helpers -- this one hadn't been exercised past its empty-participant
+/// guard clause, so the bug was never hit until now.
+fn issuer_admin_api_client(config: &Config) -> Option<IssuerAdminApiClient> {
+    let origin = crate::config::document_origin()?;
+    Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
-        String::new(),
+        origin,
         config.issuer_admin_api_path.clone(),
         config.bearer_token.clone(),
         IdentityHubClientVersion::V1Beta,
-    )
+    ))
 }
 
 fn describe_error(error: IdentityHubClientError) -> String {
@@ -151,7 +161,11 @@ pub fn credentials() -> Html {
                     let participant_context_id = participant_context_id.clone();
                     let config = config.clone();
                     async move {
-                        let client = issuer_admin_api_client(&config);
+                        let Some(client) = issuer_admin_api_client(&config) else {
+                            credentials_state
+                                .set(Loadable::Failed("could not determine page origin".into()));
+                            return;
+                        };
                         let result = client
                             .query_credentials(&participant_context_id, &QuerySpec::none())
                             .await;
@@ -165,7 +179,11 @@ pub fn credentials() -> Html {
                 spawn_local({
                     let issuance_state = issuance_state.clone();
                     async move {
-                        let client = issuer_admin_api_client(&config);
+                        let Some(client) = issuer_admin_api_client(&config) else {
+                            issuance_state
+                                .set(Loadable::Failed("could not determine page origin".into()));
+                            return;
+                        };
                         let result = client
                             .query_issuance_processes(&participant_context_id, &QuerySpec::none())
                             .await;
@@ -214,7 +232,10 @@ pub fn credentials() -> Html {
             let action_error = action_error.clone();
             let participant_context_id = participant_context_id.clone();
             spawn_local(async move {
-                let client = issuer_admin_api_client(&config);
+                let Some(client) = issuer_admin_api_client(&config) else {
+                    action_error.set(Some("could not determine page origin".into()));
+                    return;
+                };
                 match client
                     .get_credential_status(&participant_context_id, &credential_id)
                     .await
@@ -265,7 +286,10 @@ pub fn credentials() -> Html {
             let reload_value = *reload;
             let participant_context_id = participant_context_id.clone();
             spawn_local(async move {
-                let client = issuer_admin_api_client(&config);
+                let Some(client) = issuer_admin_api_client(&config) else {
+                    action_error.set(Some("could not determine page origin".into()));
+                    return;
+                };
                 let result = match action {
                     CredentialAction::Revoke => {
                         client

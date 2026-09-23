@@ -55,6 +55,22 @@ pub(crate) fn document_base_uri() -> Option<String> {
     web_sys::window()?.document()?.base_uri().ok().flatten()
 }
 
+/// The page's origin (scheme + host + port, e.g.
+/// `https://issuer-admin.ds-labs.org` -- no trailing slash, no path).
+///
+/// NOT the same thing as `document_base_uri()` above, and the two are NOT
+/// interchangeable: `document_base_uri()` includes this app's own `/ux/`
+/// path prefix (correct for resolving a file co-located with the bundle,
+/// like `configuration.json`), while apisix routes such as
+/// `/api/identity`, `/api/issuer`, and `/api/userinfo` are origin-rooted
+/// paths that live OUTSIDE `/ux/` entirely -- prefixing them with the
+/// base URI produces a wrong, nonexistent `/ux/api/...` URL. Every
+/// origin-rooted fetch/navigation in this app must build its URL from
+/// `document_origin()`, not `document_base_uri()`.
+pub(crate) fn document_origin() -> Option<String> {
+    web_sys::window()?.location().origin().ok()
+}
+
 /// Fetches and parses `configuration.json`, resolved against the
 /// document's own base URI -- NOT an origin-absolute
 /// `{origin}/configuration.json` path, which lands at the origin's root

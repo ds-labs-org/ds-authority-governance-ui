@@ -35,11 +35,16 @@ pub struct UserInfo {
 /// response wasn't actually UserInfo JSON" -- callers can't tell those
 /// apart from this alone, which is fine: either way the caller's next
 /// step is the same, force_login_redirect below.
+///
+/// Uses `document_origin()`, NOT `document_base_uri()`: `/api/userinfo`
+/// is an origin-rooted apisix route, outside this app's own `/ux/` path
+/// prefix -- prefixing it with the base URI produces a nonexistent
+/// `/ux/api/userinfo` (404), confirmed live before this fix.
 pub async fn fetch_userinfo() -> Result<UserInfo, String> {
-    let base = crate::config::document_base_uri()
-        .ok_or_else(|| "could not determine the document's base URI".to_string())?;
+    let origin = crate::config::document_origin()
+        .ok_or_else(|| "could not determine the page origin".to_string())?;
 
-    let response = reqwest::get(format!("{base}api/userinfo"))
+    let response = reqwest::get(format!("{origin}/api/userinfo"))
         .await
         .map_err(|error| error.to_string())?;
 
@@ -52,27 +57,34 @@ pub async fn fetch_userinfo() -> Result<UserInfo, String> {
 /// Forces a REAL top-level page navigation to `/api/userinfo` (not
 /// another `fetch`) so the browser actually shows Zitadel's login form --
 /// a `fetch` redirect is followed silently, with nothing rendered.
-/// Passes the current base URI as `return_to`: once authenticated, the
-/// route's own serverless-pre-function redirects back here (a plain
-/// redirect at that point, session already established, not another
-/// auth round-trip) instead of stranding the user on the bare JSON
-/// response.
+/// `/api/userinfo` itself is origin-rooted (see `fetch_userinfo` above --
+/// same reasoning, same bug when this used `document_base_uri()` and
+/// produced a nonexistent `/ux/api/userinfo`).
 ///
-/// Known limitation: `return_to` is the app's base URI (e.g.
-/// `https://issuer-admin.ds-labs.org/ux/`), not the current hash route --
-/// the URL fragment never reaches the server, so a deep link
-/// (`/ux/#/holders`) is not restored after a fresh login; the user lands
-/// on the Dashboard and re-navigates. Acceptable for now; revisit if it
-/// proves annoying in practice.
+/// Passes the app's base URI (e.g. `https://issuer-admin.ds-labs.org/ux/`
+/// -- deliberately `document_base_uri()` here, not the origin: this is
+/// where we actually want to land) as `return_to`: once authenticated,
+/// the route's own serverless-pre-function redirects back here (a plain
+/// redirect at that point, session already established, not another auth
+/// round-trip) instead of stranding the user on the bare JSON response.
+///
+/// Known limitation: `return_to` is the app's base URI, not the current
+/// hash route -- the URL fragment never reaches the server, so a deep
+/// link (`/ux/#/holders`) is not restored after a fresh login; the user
+/// lands on the Dashboard and re-navigates. Acceptable for now; revisit
+/// if it proves annoying in practice.
 pub fn force_login_redirect() {
     let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(origin) = crate::config::document_origin() else {
         return;
     };
     let Some(base) = crate::config::document_base_uri() else {
         return;
     };
     let target = format!(
-        "{base}api/userinfo?return_to={}",
+        "{origin}/api/userinfo?return_to={}",
         urlencoding_encode(&base)
     );
     let _ = window.location().set_href(&target);
