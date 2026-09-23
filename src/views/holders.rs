@@ -513,6 +513,7 @@ mod tests {
         Dispatch::<AppState>::global().set(AppState {
             selected_participant_context: None,
             config: None,
+            user: None,
         });
 
         let root = mount_in_fresh_div();
@@ -536,6 +537,7 @@ mod tests {
         Dispatch::<AppState>::global().set(AppState {
             selected_participant_context: Some("participant-1".to_string()),
             config: None,
+            user: None,
         });
 
         let root = mount_in_fresh_div();

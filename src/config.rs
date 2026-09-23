@@ -51,7 +51,7 @@ impl Config {
 /// `https://issuer-admin.ds-labs.org/ux/`), already fully resolved by the
 /// browser (unlike `<base href>`'s own attribute value, which could be a
 /// bare relative path).
-fn document_base_uri() -> Option<String> {
+pub(crate) fn document_base_uri() -> Option<String> {
     web_sys::window()?.document()?.base_uri().ok().flatten()
 }
 

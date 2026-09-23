@@ -1,4 +1,5 @@
 mod config;
+mod identity;
 mod routes;
 mod store;
 mod views;
@@ -35,6 +36,7 @@ mod app {
     use yewdux::prelude::*;
 
     use crate::config::fetch_config;
+    use crate::identity::{fetch_userinfo, force_login_redirect};
     use crate::routes::Route;
     use crate::store::AppState;
     use crate::views::{CredentialDefinitions, Credentials, Dashboard, Holders, IdentityBootstrap};
@@ -62,7 +64,27 @@ mod app {
                             dispatch.reduce_mut(|app_state| {
                                 app_state.config = Some(config);
                             });
-                            state.set(LoadState::Ready);
+
+                            match fetch_userinfo().await {
+                                Ok(user) => {
+                                    dispatch.reduce_mut(|app_state| {
+                                        app_state.user = Some(user);
+                                    });
+                                    state.set(LoadState::Ready);
+                                }
+                                Err(_) => {
+                                    // Not authenticated (or the session
+                                    // expired) -- a `fetch` redirect is
+                                    // followed silently with no visible
+                                    // login UI, so force a REAL top-level
+                                    // navigation instead. Leaves `state`
+                                    // as `Loading`: the page is about to
+                                    // navigate away entirely, there's
+                                    // nothing useful to render in the
+                                    // meantime.
+                                    force_login_redirect();
+                                }
+                            }
                         }
                         Err(message) => state.set(LoadState::ConfigError(message)),
                     }

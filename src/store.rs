@@ -4,14 +4,17 @@
 use yewdux::prelude::*;
 
 use crate::config::Config;
+use crate::identity::UserInfo;
 
 /// The single yewdux store for this app.
 ///
-/// `config` is loaded once at startup (see `src/main.rs`) and then read via
-/// `yewdux::use_store::<AppState>()` everywhere else - nothing downstream of
-/// startup should fetch `configuration.json` itself.
+/// `config` and `user` are both loaded once at startup (see
+/// `src/main.rs`) and then read via `yewdux::use_store::<AppState>()`
+/// everywhere else - nothing downstream of startup should fetch
+/// `configuration.json` or `/api/userinfo` itself.
 #[derive(Clone, Default, PartialEq, Store)]
 pub struct AppState {
     pub selected_participant_context: Option<String>,
     pub config: Option<Config>,
+    pub user: Option<UserInfo>,
 }
