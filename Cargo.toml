@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 console_error_panic_hook = "0.1"
-edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/v1beta-and-issuer-admin-api" }
+edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/credential-definitions-client" }
 # `main` currently only declares stub `mod` items in its lib.rs with no
 # component files behind them (see src/views/identity_bootstrap.rs), so this
 # does not compile as a *mandatory* dependency yet - `cargo check`/`build`
