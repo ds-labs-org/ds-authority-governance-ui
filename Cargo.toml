@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 console_error_panic_hook = "0.1"
-edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/v1beta-and-issuer-admin-api" }
+edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/credentials-issuance-client" }
 # `main` currently only declares stub `mod` items in its lib.rs with no
 # component files behind them (see src/views/identity_bootstrap.rs), so this
 # does not compile as a *mandatory* dependency yet - `cargo check`/`build`
@@ -38,3 +38,6 @@ identity-bootstrap-ui = ["dep:ds-identity-bootstrap-ui"]
 [dev-dependencies]
 serde_json = "1"
 wasm-bindgen-test = "0.3"
+# Only used to yield a tick to Yew's scheduler between mounting a component
+# in a wasm-bindgen-test and asserting on its rendered DOM.
+gloo-timers = { version = "0.3", features = ["futures"] }
