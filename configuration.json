@@ -1,0 +1,5 @@
+{
+  "identity_api_path": "/api/identity",
+  "issuer_admin_api_path": "/api/issuer",
+  "bearer_token": null
+}

@@ -1,0 +1,30 @@
+# Build tool: Trunk 0.22.0-beta.2 (pinned to match ds-catalog-browser-ui's
+# precedent). Installed separately as a devtool, not a Cargo dependency:
+#   cargo install trunk --version 0.22.0-beta.2 --locked
+
+[build]
+target = "index.html"
+dist = "dist"
+
+# Same PatternFly/FontAwesome asset versions as ds-catalog-browser-ui, so
+# this app is themed identically - see index.html for how Trunk wires the
+# CSS/fonts these packages provide into the build.
+[[node_packages]]
+name = "@patternfly/patternfly"
+version = "6.4.0"
+
+[[node_packages]]
+name = "@fortawesome/fontawesome-free"
+version = "7.1.0"
+
+# For local `trunk serve` against real identity-api / issuer-admin-api
+# backends, uncomment and point these at services reachable from your
+# machine while developing. In a real deployment this proxying is done by
+# apisix in front of the built app instead - see README.md.
+# [[proxy]]
+# rewrite = "/api/identity"
+# backend = "http://localhost:8081/api/identity"
+#
+# [[proxy]]
+# rewrite = "/api/issuer"
+# backend = "http://localhost:8082/api/issuer"
