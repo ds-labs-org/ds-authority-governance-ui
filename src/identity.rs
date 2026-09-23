@@ -54,25 +54,28 @@ pub async fn fetch_userinfo() -> Result<UserInfo, String> {
         .map_err(|error| error.to_string())
 }
 
-/// Forces a REAL top-level page navigation to `/api/userinfo` (not
-/// another `fetch`) so the browser actually shows Zitadel's login form --
-/// a `fetch` redirect is followed silently, with nothing rendered.
-/// `/api/userinfo` itself is origin-rooted (see `fetch_userinfo` above --
-/// same reasoning, same bug when this used `document_base_uri()` and
-/// produced a nonexistent `/ux/api/userinfo`).
+/// Forces a REAL top-level page navigation to `/api/login` (not another
+/// `fetch`) so the browser actually shows Zitadel's login form -- a
+/// `fetch` redirect is followed silently, with nothing rendered.
 ///
-/// Passes the app's base URI (e.g. `https://issuer-admin.ds-labs.org/ux/`
-/// -- deliberately `document_base_uri()` here, not the origin: this is
-/// where we actually want to land) as `return_to`: once authenticated,
-/// the route's own serverless-pre-function redirects back here (a plain
-/// redirect at that point, session already established, not another auth
-/// round-trip) instead of stranding the user on the bare JSON response.
+/// Deliberately a dedicated route, not `/api/userinfo` with a
+/// `?return_to=<url>` query param (tried first): that collided with
+/// openid-connect's OWN internal "remember the originally-requested URI,
+/// redirect back to it after login" mechanism -- confirmed live, the
+/// post-login redirect landed on a mangled, 404ing target rather than
+/// actually preserving the query string. `/api/login` carries no query
+/// param at all, so openid-connect's own redirect-back always lands on
+/// the same bare `/api/login` it started from; that route's own
+/// serverless-pre-function then does one plain, hardcoded,
+/// unconditional redirect back into the app (`roles/edc_issuer`'s
+/// `apisix-routes.yaml.j2`) -- no query-string round-trip involved
+/// anywhere in the flow.
 ///
-/// Known limitation: `return_to` is the app's base URI, not the current
-/// hash route -- the URL fragment never reaches the server, so a deep
-/// link (`/ux/#/holders`) is not restored after a fresh login; the user
-/// lands on the Dashboard and re-navigates. Acceptable for now; revisit
-/// if it proves annoying in practice.
+/// Known limitation: always lands on `/ux/` (the Dashboard), not
+/// wherever the user actually was -- the hardcoded redirect target has
+/// no way to know the current hash route (which never reaches the
+/// server anyway). Acceptable for now; revisit if it proves annoying in
+/// practice.
 pub fn force_login_redirect() {
     let Some(window) = web_sys::window() else {
         return;
@@ -80,25 +83,7 @@ pub fn force_login_redirect() {
     let Some(origin) = crate::config::document_origin() else {
         return;
     };
-    let Some(base) = crate::config::document_base_uri() else {
-        return;
-    };
-    let target = format!(
-        "{origin}/api/userinfo?return_to={}",
-        urlencoding_encode(&base)
-    );
-    let _ = window.location().set_href(&target);
-}
-
-/// Minimal percent-encoding for a URL query-parameter value -- avoids
-/// pulling in a whole crate (`urlencoding`/`percent-encoding`) for one
-/// call site. `base` is always a `document.baseURI` value (scheme +
-/// host + path, no query/fragment of its own), so this only ever needs
-/// to escape the characters that would otherwise break out of the
-/// `return_to=` query value: `:`, `/`, and nothing else appears in a
-/// base URI.
-fn urlencoding_encode(value: &str) -> String {
-    value.replace(':', "%3A").replace('/', "%2F")
+    let _ = window.location().set_href(&format!("{origin}/api/login"));
 }
 
 #[cfg(test)]
@@ -120,13 +105,5 @@ mod tests {
         .unwrap();
         assert_eq!(info.name.as_deref(), Some("Nico"));
         assert_eq!(info.email.as_deref(), Some("nico@ds-labs.org"));
-    }
-
-    #[test]
-    fn base_uri_is_percent_encoded_for_the_query_value() {
-        assert_eq!(
-            urlencoding_encode("https://issuer-admin.ds-labs.org/ux/"),
-            "https%3A%2F%2Fissuer-admin.ds-labs.org%2Fux%2F"
-        );
     }
 }
