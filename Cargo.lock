@@ -282,7 +282,8 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "ds-identity-bootstrap-ui",
- "edc-identity-hub-client",
+ "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fholders-client)",
+ "gloo-timers 0.3.0",
  "patternfly-yew",
  "reqwest",
  "serde",
@@ -299,7 +300,7 @@ name = "ds-identity-bootstrap-ui"
 version = "0.1.0"
 source = "git+https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git?branch=main#a8b8d9606e038fbc948c0f4560a718e5ff043824"
 dependencies = [
- "edc-identity-hub-client",
+ "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fv1beta-and-issuer-admin-api)",
  "patternfly-yew",
  "serde",
  "wasm-bindgen-futures",
@@ -311,6 +312,19 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "edc-identity-hub-client"
+version = "0.2.4"
+source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fholders-client#173166c6304e9e0e01595c821ac2595e1abc70d9"
+dependencies = [
+ "chrono",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "urlencoding",
+ "uuid",
+]
 
 [[package]]
 name = "edc-identity-hub-client"
