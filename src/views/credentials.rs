@@ -20,19 +20,18 @@ use crate::store::AppState;
 
 /// Builds the issuer-admin-api client for `config`.
 ///
-/// `endpoint` is deliberately left empty. `IssuerAdminApiClient`'s URL
-/// template already hardcodes the `/api/issuer` segment - mirroring the real
-/// EDC issuer-service context path, the same convention `IdentityHubClient`
-/// uses for its own hardcoded `/api/identity` - which is exactly what
-/// `config.issuer_admin_api_path` names as this app's same-origin proxy
-/// prefix. Passing that path in as `endpoint` too would double it up into
-/// `/api/issuer/api/issuer/...`. If a deployment ever needs a *different*
-/// same-origin prefix than `/api/issuer`, this coupling needs revisiting on
-/// the client-crate side (its URL template), not here.
+/// `endpoint` is deliberately left empty: `IssuerAdminApiClient`'s URL
+/// template is `{endpoint}{admin_api_path}/{version}/...`, and
+/// `admin_api_path` here is `config.issuer_admin_api_path` (this app's
+/// same-origin reverse-proxy prefix, e.g. `/api/issuer`) - passing it as
+/// `admin_api_path` rather than folding it into `endpoint` keeps the prefix
+/// configurable per deployment instead of hardcoded, per the same pattern
+/// `Config.identity_api_path` already documents for `IdentityHubClient`.
 fn issuer_admin_api_client(config: &Config) -> IssuerAdminApiClient {
     IssuerAdminApiClient::new(
         reqwest::Client::new(),
         String::new(),
+        config.issuer_admin_api_path.clone(),
         config.bearer_token.clone(),
         IdentityHubClientVersion::V1Beta,
     )

@@ -282,7 +282,8 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "ds-identity-bootstrap-ui",
- "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fcredential-definitions-client)",
+ "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fissuer-admin-api-integrated)",
+ "gloo-timers 0.3.0",
  "patternfly-yew",
  "reqwest",
  "serde",
@@ -315,7 +316,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 [[package]]
 name = "edc-identity-hub-client"
 version = "0.2.4"
-source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fcredential-definitions-client#478fe8b37210b32b9e503141945e289a365573fc"
+source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fissuer-admin-api-integrated#ca4a15e603aa20b7a5210a14ce82b0372d1a97f4"
 dependencies = [
  "chrono",
  "reqwest",

@@ -51,11 +51,13 @@ fn current_origin() -> Option<String> {
 
 /// Builds the issuer-admin-api client for this page's own origin.
 ///
-/// The client's methods build URLs as `{endpoint}/api/issuer/{version}/participants/...`
-/// (`edc-identity-hub-client`'s own convention), so `endpoint` here is just the page's
-/// origin: this app is served same-origin behind a reverse proxy that forwards
-/// `/api/issuer/...` requests to the real issuer-admin-api unchanged (see `Config`'s doc
-/// comment on `issuer_admin_api_path`, which names that same proxied prefix).
+/// The client's methods build URLs as
+/// `{endpoint}{admin_api_path}/{version}/participants/...`, so `endpoint` here is just
+/// the page's origin and `admin_api_path` is `config.issuer_admin_api_path`: this app is
+/// served same-origin behind a reverse proxy that forwards
+/// `<issuer_admin_api_path>/...` requests to the real issuer-admin-api unchanged (see
+/// `Config`'s doc comment on `issuer_admin_api_path`, which names that same proxied
+/// prefix).
 ///
 /// `config.bearer_token` is passed straight through as the client's own `bearer_token`
 /// param - this is the "token already resolved" case `Config`'s doc comment calls out,
@@ -68,6 +70,7 @@ fn build_client(config: &Config) -> Option<IssuerAdminApiClient> {
     Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
         origin,
+        config.issuer_admin_api_path.clone(),
         config.bearer_token.clone(),
         IdentityHubClientVersion::V1Beta,
     ))

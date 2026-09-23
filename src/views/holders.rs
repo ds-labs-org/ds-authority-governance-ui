@@ -50,14 +50,16 @@ fn browser_origin() -> Option<String> {
 
 /// Builds an issuer-admin-api client bound to the page's own origin (the
 /// same-origin reverse proxy is expected to forward
-/// `/api/issuer/<version>/...` to the real issuer-admin-api - see
-/// `src/config.rs`). Returns `None` only when the browser origin cannot be
-/// determined.
-fn build_client(bearer_token: Option<String>) -> Option<IssuerAdminApiClient> {
+/// `<issuer_admin_api_path>/<version>/...` to the real issuer-admin-api -
+/// see `src/config.rs`, whose `issuer_admin_api_path` is passed straight
+/// into the client here). Returns `None` only when the browser origin
+/// cannot be determined.
+fn build_client(bearer_token: Option<String>, admin_api_path: String) -> Option<IssuerAdminApiClient> {
     let origin = browser_origin()?;
     Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
         origin,
+        admin_api_path,
         bearer_token,
         IdentityHubClientVersion::V1Beta,
     ))
@@ -83,6 +85,11 @@ pub fn holders() -> Html {
         .config
         .as_ref()
         .and_then(|config| config.bearer_token.clone());
+    let admin_api_path = app_state
+        .config
+        .as_ref()
+        .map(|config| config.issuer_admin_api_path.clone())
+        .unwrap_or_default();
 
     let active_tab = use_state(|| HoldersTab::Approved);
     let onselect = {
@@ -113,6 +120,7 @@ pub fn holders() -> Html {
                         <ApprovedHoldersPanel
                             participant_context_id={participant_context_id.clone().unwrap_or_default()}
                             bearer_token={bearer_token.clone()}
+                            admin_api_path={admin_api_path.clone()}
                         />
                     </Tab<HoldersTab>>
                     <Tab<HoldersTab> index={HoldersTab::Pending} title="Pending Review">
@@ -128,6 +136,7 @@ pub fn holders() -> Html {
 struct ApprovedHoldersPanelProps {
     participant_context_id: String,
     bearer_token: Option<String>,
+    admin_api_path: String,
 }
 
 /// The real, working half of the workflow: list/create/delete against
@@ -147,6 +156,7 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
         let load_state = load_state.clone();
         let participant_context_id = props.participant_context_id.clone();
         let bearer_token = props.bearer_token.clone();
+        let admin_api_path = props.admin_api_path.clone();
         use_effect_with(
             (participant_context_id.clone(), *reload_token),
             move |_| {
@@ -154,8 +164,9 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
                 let load_state = load_state.clone();
                 let participant_context_id = participant_context_id.clone();
                 let bearer_token = bearer_token.clone();
+                let admin_api_path = admin_api_path.clone();
                 spawn_local(async move {
-                    let Some(client) = build_client(bearer_token) else {
+                    let Some(client) = build_client(bearer_token, admin_api_path) else {
                         load_state.set(LoadState::Error(
                             "could not determine the page origin".to_string(),
                         ));
@@ -206,6 +217,7 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
         let submitting = submitting.clone();
         let participant_context_id = props.participant_context_id.clone();
         let bearer_token = props.bearer_token.clone();
+        let admin_api_path = props.admin_api_path.clone();
         Callback::from(move |_: MouseEvent| {
             let holder = HolderDto::new((*form_id).clone(), (*form_did).clone(), (*form_name).clone());
             let show_add_modal = show_add_modal.clone();
@@ -214,11 +226,12 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
             let submitting = submitting.clone();
             let participant_context_id = participant_context_id.clone();
             let bearer_token = bearer_token.clone();
+            let admin_api_path = admin_api_path.clone();
             let current_reload_token = *reload_token;
 
             submitting.set(true);
             spawn_local(async move {
-                let Some(client) = build_client(bearer_token) else {
+                let Some(client) = build_client(bearer_token, admin_api_path) else {
                     mutation_error.set(Some("could not determine the page origin".to_string()));
                     submitting.set(false);
                     return;
@@ -242,11 +255,13 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
         let reload_token = reload_token.clone();
         let participant_context_id = props.participant_context_id.clone();
         let bearer_token = props.bearer_token.clone();
+        let admin_api_path = props.admin_api_path.clone();
         Callback::from(move |holder_id: String| {
             let mutation_error = mutation_error.clone();
             let reload_token = reload_token.clone();
             let participant_context_id = participant_context_id.clone();
             let bearer_token = bearer_token.clone();
+            let admin_api_path = admin_api_path.clone();
             let current_reload_token = *reload_token;
 
             let confirmed = web_sys::window()
@@ -264,7 +279,7 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
             }
 
             spawn_local(async move {
-                let Some(client) = build_client(bearer_token) else {
+                let Some(client) = build_client(bearer_token, admin_api_path) else {
                     mutation_error.set(Some("could not determine the page origin".to_string()));
                     return;
                 };
@@ -457,7 +472,13 @@ fn pending_holders_panel() -> Html {
 /// "Add holder" toolbar button, the pending-tab placeholder copy) so they
 /// don't depend on the async holders fetch - against a test-harness origin
 /// with no real issuer-admin-api behind it - ever resolving.
-#[cfg(test)]
+// `Dispatch::global()` (yewdux) and the DOM-mounting `wasm_bindgen_test`
+// helpers below only compile for `target_arch = "wasm32"` (see yewdux's own
+// `#[cfg(any(doc, feature = "doctests", target_arch = "wasm32"))]` on
+// `Dispatch::global`), so this whole module has to be wasm32-gated -- same
+// fix as the sibling `dom_tests` module in `src/views/credentials.rs`.
+// Exercise these via `wasm-pack test --headless --chrome` (or `--firefox`).
+#[cfg(all(test, target_arch = "wasm32"))]
 mod tests {
     use super::*;
     use gloo_timers::future::TimeoutFuture;
