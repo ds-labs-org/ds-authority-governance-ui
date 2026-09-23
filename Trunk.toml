@@ -5,6 +5,9 @@
 [build]
 target = "index.html"
 dist = "dist"
+# Served at the /ux/ path prefix in production (not at root) - keep every
+# asset reference the build emits in index.html prefixed accordingly.
+public_url = "/ux/"
 
 # Same PatternFly/FontAwesome asset versions as ds-catalog-browser-ui, so
 # this app is themed identically - see index.html for how Trunk wires the
