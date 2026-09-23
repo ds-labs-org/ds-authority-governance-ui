@@ -46,16 +46,34 @@ impl Config {
     }
 }
 
-/// Fetches and parses `configuration.json`, resolved as a **relative**
-/// path against the document's own `<base href>` (set by Trunk's
-/// `public_url`, e.g. `/ux/`) -- NOT an absolute `{origin}/configuration.json`
-/// path, which would land at the origin's root regardless of what prefix
-/// this app is actually served under. This app is deployed under `/ux/`
-/// (roles/edc_issuer's apisix static-serving location), so an
-/// origin-absolute fetch hit apisix's root -- not a static file at all --
-/// and failed to decode its (non-JSON) response as `Config`.
+/// The document's resolved, absolute base URI (`document.baseURI`) --
+/// honors the `<base href>` tag Trunk sets from `public_url` (e.g.
+/// `https://issuer-admin.ds-labs.org/ux/`), already fully resolved by the
+/// browser (unlike `<base href>`'s own attribute value, which could be a
+/// bare relative path).
+fn document_base_uri() -> Option<String> {
+    web_sys::window()?.document()?.base_uri().ok().flatten()
+}
+
+/// Fetches and parses `configuration.json`, resolved against the
+/// document's own base URI -- NOT an origin-absolute
+/// `{origin}/configuration.json` path, which lands at the origin's root
+/// regardless of what prefix this app is actually served under (this app
+/// is deployed under `/ux/`, roles/edc_issuer's apisix static-serving
+/// location).
+///
+/// Also NOT a bare relative `reqwest::get("configuration.json")` --
+/// tried that first, and it fails with a reqwest "builder error" before
+/// any network call: reqwest builds its own `url::Url` via `IntoUrl`,
+/// which requires an absolute URL (`Url::parse` errors on a schemeless,
+/// hostless string with `RelativeUrlWithoutBase`) -- it does NOT hand the
+/// raw string to the browser's `fetch()` for the browser to resolve
+/// against `<base href>` itself. The resolution has to happen on our side
+/// first, via `document_base_uri()` above.
 pub async fn fetch_config() -> Result<Config, String> {
-    let response = reqwest::get("configuration.json")
+    let base = document_base_uri()
+        .ok_or_else(|| "could not determine the document's base URI".to_string())?;
+    let response = reqwest::get(format!("{base}configuration.json"))
         .await
         .map_err(|error| error.to_string())?;
 
