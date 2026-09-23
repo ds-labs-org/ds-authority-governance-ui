@@ -36,7 +36,7 @@ mod app {
     use yewdux::prelude::*;
 
     use crate::config::fetch_config;
-    use crate::identity::{fetch_userinfo, force_login_redirect};
+    use crate::identity::{disconnect, fetch_userinfo, force_login_redirect};
     use crate::routes::Route;
     use crate::store::AppState;
     use crate::views::{CredentialDefinitions, Credentials, Dashboard, Holders, IdentityBootstrap};
@@ -144,12 +144,64 @@ mod app {
             </PageSidebar>
         };
 
+        let tools = html!(<IdentityBadge />);
+
         html!(
             <HashRouter>
-                <Page {brand} {sidebar} full_height=true>
+                <Page {brand} {sidebar} {tools} full_height=true>
                     <RouteSwitch<Route> render={switch} />
                 </Page>
             </HashRouter>
+        )
+    }
+
+    /// The top-right identity control (`Page::tools`, patternfly-yew's own
+    /// masthead slot for exactly this -- confirmed in its source, not
+    /// guessed). Renders nothing until `AppState.user` is populated (it
+    /// always is by the time `Shell` mounts, since `App` only renders
+    /// `Shell` after both configuration.json and /api/userinfo have
+    /// loaded -- see `LoadState::Ready` above -- but reading `AppState`
+    /// directly here, rather than threading it through as a prop, means
+    /// this stays correct even if that load-order assumption ever
+    /// changes).
+    #[function_component(IdentityBadge)]
+    fn identity_badge() -> Html {
+        let (app_state, _dispatch) = use_store::<AppState>();
+
+        let Some(user) = app_state.user.clone() else {
+            return html!();
+        };
+
+        let on_disconnect = Callback::from(|_: ()| disconnect());
+
+        html!(
+            <Dropdown
+                icon={html!(Icon::User)}
+                variant={MenuToggleVariant::Plain}
+                aria_label="Signed-in user"
+            >
+                <Raw>
+                    <div class="pf-v6-u-p-md">
+                        <div class="pf-v6-u-font-weight-bold">{ user.display_name() }</div>
+                        if let Some(email) = &user.email {
+                            // No plain "muted text" utility class exists in
+                            // PatternFly v6's shipped CSS (confirmed by
+                            // grepping the actual built bundle) -- v6 moved
+                            // this to design tokens instead. Use the real
+                            // token (--pf-t--global--text--color--subtle)
+                            // directly rather than guess at a utility class
+                            // name that doesn't exist.
+                            <div style="color: var(--pf-t--global--text--color--subtle);">
+                                { email }
+                            </div>
+                        }
+                    </div>
+                </Raw>
+                <ListDivider />
+                <MenuAction danger=true onclick={on_disconnect}>
+                    { "Disconnect" }
+                </MenuAction>
+            </Dropdown>
         )
     }
 
