@@ -46,10 +46,16 @@ impl Config {
     }
 }
 
-/// Fetches and parses `configuration.json` from `origin` (the page's own
-/// origin, from `web_sys::window().location().origin()`).
-pub async fn fetch_config(origin: &str) -> Result<Config, String> {
-    let response = reqwest::get(format!("{origin}/configuration.json"))
+/// Fetches and parses `configuration.json`, resolved as a **relative**
+/// path against the document's own `<base href>` (set by Trunk's
+/// `public_url`, e.g. `/ux/`) -- NOT an absolute `{origin}/configuration.json`
+/// path, which would land at the origin's root regardless of what prefix
+/// this app is actually served under. This app is deployed under `/ux/`
+/// (roles/edc_issuer's apisix static-serving location), so an
+/// origin-absolute fetch hit apisix's root -- not a static file at all --
+/// and failed to decode its (non-JSON) response as `Config`.
+pub async fn fetch_config() -> Result<Config, String> {
+    let response = reqwest::get("configuration.json")
         .await
         .map_err(|error| error.to_string())?;
 

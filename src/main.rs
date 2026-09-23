@@ -57,14 +57,7 @@ mod app {
             let state = state.clone();
             use_effect_with((), move |_| {
                 spawn_local(async move {
-                    let Some(origin) = current_origin() else {
-                        state.set(LoadState::ConfigError(
-                            "could not determine the page origin".to_string(),
-                        ));
-                        return;
-                    };
-
-                    match fetch_config(&origin).await {
+                    match fetch_config().await {
                         Ok(config) => {
                             dispatch.reduce_mut(|app_state| {
                                 app_state.config = Some(config);
@@ -98,10 +91,6 @@ mod app {
             ),
             LoadState::Ready => html!(<Shell />),
         }
-    }
-
-    fn current_origin() -> Option<String> {
-        web_sys::window()?.location().origin().ok()
     }
 
     /// The masthead + nav-sidebar + routed-content chrome, mounted only
