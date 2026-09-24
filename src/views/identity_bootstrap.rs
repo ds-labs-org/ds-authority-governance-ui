@@ -22,10 +22,6 @@ fn current_origin() -> Option<String> {
 pub fn identity_bootstrap() -> Html {
     let (app_state, dispatch) = use_store::<AppState>();
     let participant_context_id = app_state.selected_participant_context.clone();
-    let bearer_token = app_state
-        .config
-        .as_ref()
-        .and_then(|config| config.bearer_token.clone());
 
     let Some(endpoint) = current_origin() else {
         return html! {
@@ -57,7 +53,6 @@ pub fn identity_bootstrap() -> Html {
             </Content>
             <IdentityBootstrapWizard
                 {endpoint}
-                {bearer_token}
                 {participant_context_id}
                 {on_bootstrapped}
             />

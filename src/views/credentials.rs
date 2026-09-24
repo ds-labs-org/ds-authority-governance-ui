@@ -38,11 +38,14 @@ use crate::store::AppState;
 /// guard clause, so the bug was never hit until now.
 fn issuer_admin_api_client(config: &Config) -> Option<IssuerAdminApiClient> {
     let origin = crate::config::document_origin()?;
+    // No API key passed here: issuer-admin-api's own `x-api-key` auth is
+    // injected server-side by apisix, never by this app (see Config's doc
+    // comment).
     Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
         origin,
         config.issuer_admin_api_path.clone(),
-        config.bearer_token.clone(),
+        None,
         IdentityHubClientVersion::V1Beta,
     ))
 }

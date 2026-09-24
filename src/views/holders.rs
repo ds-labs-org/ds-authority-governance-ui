@@ -54,13 +54,16 @@ fn browser_origin() -> Option<String> {
 /// see `src/config.rs`, whose `issuer_admin_api_path` is passed straight
 /// into the client here). Returns `None` only when the browser origin
 /// cannot be determined.
-fn build_client(bearer_token: Option<String>, admin_api_path: String) -> Option<IssuerAdminApiClient> {
+fn build_client(admin_api_path: String) -> Option<IssuerAdminApiClient> {
     let origin = browser_origin()?;
+    // No API key passed here: issuer-admin-api's own `x-api-key` auth is
+    // injected server-side by apisix, never by this app (see `Config`'s
+    // doc comment).
     Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
         origin,
         admin_api_path,
-        bearer_token,
+        None,
         IdentityHubClientVersion::V1Beta,
     ))
 }
@@ -81,10 +84,6 @@ fn describe_error(error: IdentityHubClientError) -> String {
 pub fn holders() -> Html {
     let (app_state, _dispatch) = use_store::<AppState>();
     let participant_context_id = app_state.selected_participant_context.clone();
-    let bearer_token = app_state
-        .config
-        .as_ref()
-        .and_then(|config| config.bearer_token.clone());
     let admin_api_path = app_state
         .config
         .as_ref()
@@ -119,7 +118,6 @@ pub fn holders() -> Html {
                     <Tab<HoldersTab> index={HoldersTab::Approved} title="Approved">
                         <ApprovedHoldersPanel
                             participant_context_id={participant_context_id.clone().unwrap_or_default()}
-                            bearer_token={bearer_token.clone()}
                             admin_api_path={admin_api_path.clone()}
                         />
                     </Tab<HoldersTab>>
@@ -135,7 +133,6 @@ pub fn holders() -> Html {
 #[derive(Properties, PartialEq)]
 struct ApprovedHoldersPanelProps {
     participant_context_id: String,
-    bearer_token: Option<String>,
     admin_api_path: String,
 }
 
@@ -155,7 +152,6 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
     {
         let load_state = load_state.clone();
         let participant_context_id = props.participant_context_id.clone();
-        let bearer_token = props.bearer_token.clone();
         let admin_api_path = props.admin_api_path.clone();
         use_effect_with(
             (participant_context_id.clone(), *reload_token),
@@ -163,10 +159,9 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
                 load_state.set(LoadState::Loading);
                 let load_state = load_state.clone();
                 let participant_context_id = participant_context_id.clone();
-                let bearer_token = bearer_token.clone();
                 let admin_api_path = admin_api_path.clone();
                 spawn_local(async move {
-                    let Some(client) = build_client(bearer_token, admin_api_path) else {
+                    let Some(client) = build_client(admin_api_path) else {
                         load_state.set(LoadState::Error(
                             "could not determine the page origin".to_string(),
                         ));
@@ -216,7 +211,6 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
         let reload_token = reload_token.clone();
         let submitting = submitting.clone();
         let participant_context_id = props.participant_context_id.clone();
-        let bearer_token = props.bearer_token.clone();
         let admin_api_path = props.admin_api_path.clone();
         Callback::from(move |_: MouseEvent| {
             let holder = HolderDto::new((*form_id).clone(), (*form_did).clone(), (*form_name).clone());
@@ -225,13 +219,12 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
             let reload_token = reload_token.clone();
             let submitting = submitting.clone();
             let participant_context_id = participant_context_id.clone();
-            let bearer_token = bearer_token.clone();
             let admin_api_path = admin_api_path.clone();
             let current_reload_token = *reload_token;
 
             submitting.set(true);
             spawn_local(async move {
-                let Some(client) = build_client(bearer_token, admin_api_path) else {
+                let Some(client) = build_client(admin_api_path) else {
                     mutation_error.set(Some("could not determine the page origin".to_string()));
                     submitting.set(false);
                     return;
@@ -254,13 +247,11 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
         let mutation_error = mutation_error.clone();
         let reload_token = reload_token.clone();
         let participant_context_id = props.participant_context_id.clone();
-        let bearer_token = props.bearer_token.clone();
         let admin_api_path = props.admin_api_path.clone();
         Callback::from(move |holder_id: String| {
             let mutation_error = mutation_error.clone();
             let reload_token = reload_token.clone();
             let participant_context_id = participant_context_id.clone();
-            let bearer_token = bearer_token.clone();
             let admin_api_path = admin_api_path.clone();
             let current_reload_token = *reload_token;
 
@@ -279,7 +270,7 @@ fn approved_holders_panel(props: &ApprovedHoldersPanelProps) -> Html {
             }
 
             spawn_local(async move {
-                let Some(client) = build_client(bearer_token, admin_api_path) else {
+                let Some(client) = build_client(admin_api_path) else {
                     mutation_error.set(Some("could not determine the page origin".to_string()));
                     return;
                 };

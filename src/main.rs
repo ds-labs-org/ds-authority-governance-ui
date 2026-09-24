@@ -37,7 +37,7 @@ mod app {
     use yew_router::prelude::{use_navigator, HashRouter, Link, Switch as RouteSwitch};
     use yewdux::prelude::*;
 
-    use crate::config::{document_origin, fetch_config, Config};
+    use crate::config::{document_origin, fetch_config};
     use crate::identity::{disconnect, fetch_userinfo, force_login_redirect};
     use crate::routes::Route;
     use crate::store::AppState;
@@ -79,13 +79,16 @@ mod app {
     /// infra#84), the same assumption `AppState::selected_participant_context`
     /// already makes everywhere else in this app (a single scalar, never a
     /// list).
-    async fn check_needs_bootstrap(config: &Config) -> Result<bool, String> {
+    async fn check_needs_bootstrap() -> Result<bool, String> {
         let origin = document_origin()
             .ok_or_else(|| "could not determine the page origin".to_string())?;
+        // No API key passed here: identity-api's own `x-api-key` auth is
+        // injected server-side by apisix (see Config's doc comment), never
+        // by this app.
         let client = IdentityHubClient::new(
             reqwest::Client::new(),
             origin,
-            config.bearer_token.clone(),
+            None,
             IdentityHubClientVersion::V1Beta,
         );
 
@@ -133,7 +136,7 @@ mod app {
                                         app_state.user = Some(user);
                                     });
 
-                                    match check_needs_bootstrap(&config).await {
+                                    match check_needs_bootstrap().await {
                                         Ok(needs_bootstrap) => {
                                             state.set(LoadState::Ready { needs_bootstrap })
                                         }

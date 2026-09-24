@@ -59,19 +59,17 @@ fn current_origin() -> Option<String> {
 /// `Config`'s doc comment on `issuer_admin_api_path`, which names that same proxied
 /// prefix).
 ///
-/// `config.bearer_token` is passed straight through as the client's own `bearer_token`
-/// param - this is the "token already resolved" case `Config`'s doc comment calls out,
-/// as opposed to hand-rolling a request and calling `Config::authorize` on it (which
-/// this view never does, since every request here goes through `IssuerAdminApiClient`).
-/// The browser's same-origin session cookie, when present, is sent automatically on top
-/// of this regardless.
+/// No API key is passed to the client: issuer-admin-api's own `x-api-key`
+/// auth is injected server-side by apisix, never by this app (see
+/// `Config`'s doc comment). The browser's same-origin OIDC session cookie,
+/// when present, is sent automatically on top of this regardless.
 fn build_client(config: &Config) -> Option<IssuerAdminApiClient> {
     let origin = current_origin()?;
     Some(IssuerAdminApiClient::new(
         reqwest::Client::new(),
         origin,
         config.issuer_admin_api_path.clone(),
-        config.bearer_token.clone(),
+        None,
         IdentityHubClientVersion::V1Beta,
     ))
 }
