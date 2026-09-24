@@ -24,7 +24,6 @@ fn main() {
 /// `app` module, which this loading/error-state pattern is modelled on.
 #[cfg(target_arch = "wasm32")]
 mod app {
-    use ds_identity_bootstrap_ui::{did_from_participant_id, is_published};
     use edc_identity_hub_client::{IdentityHubClient, IdentityHubClientError, IdentityHubClientVersion};
     use patternfly_yew::prelude::*;
     use yew::platform::spawn_local;
@@ -70,9 +69,31 @@ mod app {
         }
     }
 
-    /// The "at startup, check if a DID is published" gate: `true` when
-    /// there's no participant context yet, or the first one's DID isn't
-    /// `PUBLISHED` yet.
+    /// `ParticipantContextState::ACTIVATED`'s wire value
+    /// (org.eclipse.edc.participantcontext.spi.types.ParticipantContextState,
+    /// eclipse-edc/Connector, confirmed at the pinned v0.18.0 tag: CREATED=100,
+    /// ACTIVATED=200, DEACTIVATED=300). `Participant::state` (this crate's
+    /// model) deserializes the raw int the API returns, not an enum, so the
+    /// numeric literal is compared directly here rather than invented as a
+    /// second, redundant enum on this side of the wire.
+    const PARTICIPANT_STATE_ACTIVATED: u16 = 200;
+
+    /// The "at startup, check if this authority is bootstrapped" gate: `true`
+    /// when there's no participant context yet, or the first one isn't
+    /// `ACTIVATED` yet.
+    ///
+    /// Deliberately does NOT call a DID-state/publish endpoint: the Issuer
+    /// Service launcher's identity-api does not register did-api at all
+    /// (confirmed by reading issuerservice-base-bom's build.gradle.kts --
+    /// it depends on `extensions:api:identity-api:participant-context-api`
+    /// but NOT `extensions:api:identity-api:did-api`, unlike the plain
+    /// IdentityHub/wallet launcher's identityhub-base-bom, which has both).
+    /// A previous version of this check called `get_did_state` and got a
+    /// live 404 as a result. Activation IS the correct and only signal here:
+    /// `DidDocumentServiceImpl` (core/identity-hub-did) listens for the
+    /// `ParticipantContextUpdated` event fired by activating a participant
+    /// and auto-publishes its DID as a side effect -- there is no separate
+    /// "publish" step to check on this role.
     ///
     /// Only the first context is checked -- this app bootstraps exactly
     /// one identity per deployment (the `ds42-authority` case tracked by
@@ -101,18 +122,7 @@ mod app {
             return Ok(true);
         };
 
-        // This app's own bootstrap wizard (`ds_identity_bootstrap_ui`)
-        // always uses the same string for both `participantId` and
-        // `participantContextId` -- reusing its `did_from_participant_id`
-        // here keeps that convention defined in exactly one place rather
-        // than re-encoded on both sides of the crate boundary.
-        let did = did_from_participant_id(&first.participant_context_id);
-        let state = client
-            .get_did_state(&first.participant_context_id, &did)
-            .await
-            .map_err(describe_identity_hub_error)?;
-
-        Ok(!is_published(&state))
+        Ok(first.state != PARTICIPANT_STATE_ACTIVATED)
     }
 
     #[function_component(App)]
