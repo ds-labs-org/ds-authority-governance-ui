@@ -814,9 +814,13 @@ mod tests {
     }
 
     /// Component-level test: mounts the real view into a detached DOM node and reads
-    /// its rendered text back out. Not run in this environment (no headless browser
-    /// available) - exercise it via `wasm-pack test --headless --chrome` (or
-    /// `--firefox`).
+    /// its rendered text back out. Exercised via `wasm-pack test --headless --chrome`
+    /// (or `--firefox`), never under plain `cargo test` -- gated to wasm32 because it
+    /// calls `Dispatch::global()`, which yewdux only provides for that target (same
+    /// reasoning `views::holders`'s own DOM tests are gated this way; this one wasn't,
+    /// which broke plain native `cargo test` outright rather than just skipping the
+    /// test -- a real compile error, not a benign no-op).
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen_test]
     async fn credential_definitions_prompts_when_no_participant_context_is_selected() {
         // `AppState` is a yewdux global, shared across every test in this
