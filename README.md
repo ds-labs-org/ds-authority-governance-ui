@@ -54,8 +54,7 @@ Fetched at runtime from the app's own origin, same pattern as
 ```json
 {
   "identity_api_path": "/api/identity",
-  "issuer_admin_api_path": "/api/issuer",
-  "bearer_token": null
+  "issuer_admin_api_path": "/api/issuer"
 }
 ```
 
@@ -65,14 +64,14 @@ Fetched at runtime from the app's own origin, same pattern as
   forward each path to the real identity-api / issuer-admin-api. That's a
   deliberate choice to avoid any CORS dependency, handled by a separate
   integration/deployment stage, not by this app.
-- `bearer_token` is optional (string or `null`/absent). This app is served
-  behind an OIDC gate (apisix + Zitadel) that sets a same-origin session
-  cookie, which the browser sends automatically on every same-origin API
-  call - that's the common case and needs nothing from this field.
-  `bearer_token`, when present, adds an *additional*
-  `Authorization: Bearer <token>` header (see `Config::authorize` in
-  `src/config.rs`) for scripted/service access; it never replaces the
-  cookie.
+- There is deliberately no API-key/bearer-token field here. EDC's
+  identity-api/issuer-admin-api require their own `x-api-key` header
+  underneath apisix's Zitadel OIDC gate; that key is injected server-side
+  by apisix (`proxy-rewrite`, dslabs-infra's `roles/edc_issuer`) after the
+  gate authenticates the human. `configuration.json` is served by this
+  app's own unauthenticated static hosting, so shipping any such key here
+  would leak it to anyone who loads the page, logged in or not - the
+  browser never sees or sends it.
 
 `src/config.rs` fetches and parses this file once at startup (before the
 routed content renders - see `src/main.rs`), and the result is stored in the
