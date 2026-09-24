@@ -17,11 +17,11 @@ console_error_panic_hook = "0.1"
 # The bump is required, not optional: the startup DID-bootstrap check in
 # `main.rs` calls `get_participants`/`get_did_state`, and `get_did_state`
 # does not exist at all before this branch.
-edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/identity-bootstrap-client" }
-# `ds-identity-bootstrap-ui` now ships real components on
-# `feat/wizard-components` (see `src/views/identity_bootstrap.rs`), so this
-# is back to a plain mandatory dependency -- no more `optional`/feature gate.
-ds-identity-bootstrap-ui = { git = "https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git", branch = "feat/wizard-components" }
+edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/issuer-admin-api-integrated" }
+# `ds-identity-bootstrap-ui` now ships real components on `main` (see
+# `src/views/identity_bootstrap.rs`), so this is back to a plain mandatory
+# dependency -- no more `optional`/feature gate.
+ds-identity-bootstrap-ui = { git = "https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git", branch = "main" }
 patternfly-yew = { version = "0.8.2", features = ["experimental"] }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
