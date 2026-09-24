@@ -10,17 +10,18 @@ readme = "README.md"
 
 [dependencies]
 console_error_panic_hook = "0.1"
-edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/issuer-admin-api-integrated" }
-# `main` currently only declares stub `mod` items in its lib.rs with no
-# component files behind them (see src/views/identity_bootstrap.rs), so this
-# does not compile as a *mandatory* dependency yet - `cargo check`/`build`
-# would fail unconditionally the moment Cargo builds the dependency graph,
-# regardless of whether anything in this crate imports its types. Marked
-# `optional` (gated behind the `identity-bootstrap-ui` feature, off by
-# default) so this crate keeps building in the meantime; the git ref itself
-# is unchanged. Flip back to a plain mandatory dependency once that crate
-# ships real components.
-ds-identity-bootstrap-ui = { git = "https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git", branch = "main", optional = true }
+# Bumped from `feat/issuer-admin-api-integrated` to `feat/identity-bootstrap-client`
+# (branched off it, a strict superset -- confirmed by reading its history:
+# the credential-definitions/holders/credentials/issuance-processes clients
+# this crate already depends on are all still there, merged in unchanged).
+# The bump is required, not optional: the startup DID-bootstrap check in
+# `main.rs` calls `get_participants`/`get_did_state`, and `get_did_state`
+# does not exist at all before this branch.
+edc-identity-hub-client = { git = "https://github.com/ds-labs-org/edc-identity-hub-client.git", branch = "feat/identity-bootstrap-client" }
+# `ds-identity-bootstrap-ui` now ships real components on
+# `feat/wizard-components` (see `src/views/identity_bootstrap.rs`), so this
+# is back to a plain mandatory dependency -- no more `optional`/feature gate.
+ds-identity-bootstrap-ui = { git = "https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git", branch = "feat/wizard-components" }
 patternfly-yew = { version = "0.8.2", features = ["experimental"] }
 reqwest = { version = "0.13", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -29,11 +30,6 @@ web-sys = { version = "0.3", features = ["Window", "Location", "Document"] }
 yew = { version = "0.23.0", features = ["csr"] }
 yew-router = "0.20.0"
 yewdux = "0.13.0"
-
-[features]
-# Off by default: see the comment on the `ds-identity-bootstrap-ui`
-# dependency above.
-identity-bootstrap-ui = ["dep:ds-identity-bootstrap-ui"]
 
 [dev-dependencies]
 # Only used to yield a tick to Yew's scheduler between mounting a component

@@ -24,6 +24,8 @@ fn main() {
 /// `app` module, which this loading/error-state pattern is modelled on.
 #[cfg(target_arch = "wasm32")]
 mod app {
+    use ds_identity_bootstrap_ui::{did_from_participant_id, is_published};
+    use edc_identity_hub_client::{IdentityHubClient, IdentityHubClientError, IdentityHubClientVersion};
     use patternfly_yew::prelude::*;
     use yew::platform::spawn_local;
     use yew::prelude::*;
@@ -32,10 +34,10 @@ mod app {
     // distinct name rather than glob-importing both, same fix as
     // `patternfly-yew-quickstart` uses (`RouterSwitch`) for the analogous
     // clash with `yew_nested_router`.
-    use yew_router::prelude::{HashRouter, Link, Switch as RouteSwitch};
+    use yew_router::prelude::{use_navigator, HashRouter, Link, Switch as RouteSwitch};
     use yewdux::prelude::*;
 
-    use crate::config::fetch_config;
+    use crate::config::{document_origin, fetch_config, Config};
     use crate::identity::{disconnect, fetch_userinfo, force_login_redirect};
     use crate::routes::Route;
     use crate::store::AppState;
@@ -47,7 +49,67 @@ mod app {
         Loading,
         /// `configuration.json` could not be fetched or parsed.
         ConfigError(String),
-        Ready,
+        /// `configuration.json` and `/api/userinfo` both loaded, but the
+        /// identity-api bootstrap check itself failed (network error, or a
+        /// non-success response).
+        BootstrapCheckError(String),
+        Ready {
+            /// No participant context exists yet, or its DID isn't
+            /// `PUBLISHED` -- the app should open on the bootstrap wizard
+            /// rather than the normal Dashboard.
+            needs_bootstrap: bool,
+        },
+    }
+
+    fn describe_identity_hub_error(error: IdentityHubClientError) -> String {
+        match error {
+            IdentityHubClientError::Reqwest(error) => error.to_string(),
+            IdentityHubClientError::Response(response) => {
+                format!("identity-api responded with {}", response.status())
+            }
+        }
+    }
+
+    /// The "at startup, check if a DID is published" gate: `true` when
+    /// there's no participant context yet, or the first one's DID isn't
+    /// `PUBLISHED` yet.
+    ///
+    /// Only the first context is checked -- this app bootstraps exactly
+    /// one identity per deployment (the `ds42-authority` case tracked by
+    /// infra#84), the same assumption `AppState::selected_participant_context`
+    /// already makes everywhere else in this app (a single scalar, never a
+    /// list).
+    async fn check_needs_bootstrap(config: &Config) -> Result<bool, String> {
+        let origin = document_origin()
+            .ok_or_else(|| "could not determine the page origin".to_string())?;
+        let client = IdentityHubClient::new(
+            reqwest::Client::new(),
+            origin,
+            config.bearer_token.clone(),
+            IdentityHubClientVersion::V1Beta,
+        );
+
+        let participants = client
+            .get_participants(0, 1)
+            .await
+            .map_err(describe_identity_hub_error)?;
+
+        let Some(first) = participants.into_iter().next() else {
+            return Ok(true);
+        };
+
+        // This app's own bootstrap wizard (`ds_identity_bootstrap_ui`)
+        // always uses the same string for both `participantId` and
+        // `participantContextId` -- reusing its `did_from_participant_id`
+        // here keeps that convention defined in exactly one place rather
+        // than re-encoded on both sides of the crate boundary.
+        let did = did_from_participant_id(&first.participant_context_id);
+        let state = client
+            .get_did_state(&first.participant_context_id, &did)
+            .await
+            .map_err(describe_identity_hub_error)?;
+
+        Ok(!is_published(&state))
     }
 
     #[function_component(App)]
@@ -62,7 +124,7 @@ mod app {
                     match fetch_config().await {
                         Ok(config) => {
                             dispatch.reduce_mut(|app_state| {
-                                app_state.config = Some(config);
+                                app_state.config = Some(config.clone());
                             });
 
                             match fetch_userinfo().await {
@@ -70,7 +132,15 @@ mod app {
                                     dispatch.reduce_mut(|app_state| {
                                         app_state.user = Some(user);
                                     });
-                                    state.set(LoadState::Ready);
+
+                                    match check_needs_bootstrap(&config).await {
+                                        Ok(needs_bootstrap) => {
+                                            state.set(LoadState::Ready { needs_bootstrap })
+                                        }
+                                        Err(message) => {
+                                            state.set(LoadState::BootstrapCheckError(message))
+                                        }
+                                    }
                                 }
                                 Err(_) => {
                                     // Not authenticated (or the session
@@ -111,7 +181,18 @@ mod app {
                     </Alert>
                 </Bullseye>
             ),
-            LoadState::Ready => html!(<Shell />),
+            LoadState::BootstrapCheckError(message) => html!(
+                <Bullseye>
+                    <Alert
+                        r#type={AlertType::Danger}
+                        title="Could not determine whether this deployment's identity is bootstrapped"
+                        inline=true
+                    >
+                        <p>{ message.clone() }</p>
+                    </Alert>
+                </Bullseye>
+            ),
+            LoadState::Ready { needs_bootstrap } => html!(<Shell needs_bootstrap={*needs_bootstrap} />),
         }
     }
 
@@ -122,8 +203,16 @@ mod app {
     /// Routing is hash-based (`HashRouter`, URLs like `/#/holders`), never
     /// history/browser mode, so the built bundle can be dropped on any
     /// static host/CDN with zero server-side fallback-rule configuration.
+    #[derive(Properties, PartialEq)]
+    struct ShellProps {
+        /// Forwarded straight to `BootstrapRedirect`, rendered inside the
+        /// `HashRouter` this component owns -- see that component's own
+        /// doc comment for why the redirect can't just happen here.
+        needs_bootstrap: bool,
+    }
+
     #[function_component(Shell)]
-    fn shell() -> Html {
+    fn shell(props: &ShellProps) -> Html {
         let brand = html!(
             <Title level={Level::H3} size={Size::XXLarge}>
                 { "DS Authority Governance Console" }
@@ -145,14 +234,60 @@ mod app {
         };
 
         let tools = html!(<IdentityBadge />);
+        let needs_bootstrap = props.needs_bootstrap;
 
         html!(
             <HashRouter>
+                <BootstrapRedirect {needs_bootstrap} />
                 <Page {brand} {sidebar} {tools} full_height=true>
                     <RouteSwitch<Route> render={switch} />
                 </Page>
             </HashRouter>
         )
+    }
+
+    /// Performs the actual "redirect the user to the wizard" the startup
+    /// check calls for: a real `yew_router` navigation (`Navigator::push`)
+    /// to `Route::IdentityBootstrap`, run once on mount when
+    /// `needs_bootstrap` is `true`.
+    ///
+    /// Chosen over rendering `IdentityBootstrapWizard` full-page in place
+    /// of `Shell` (the other option this component could have taken):
+    /// pushing a real route changes the URL hash to `#/identity-bootstrap`
+    /// -- reloading the page, or sharing the link, lands back on the
+    /// wizard exactly the way a normal redirect would, the nav sidebar
+    /// highlights the right entry, and `Route::IdentityBootstrap`'s own
+    /// view (`IdentityBootstrap`) is reused unchanged. A full-page swap
+    /// with no route/URL change would look like a redirect but not behave
+    /// like one under a reload or a shared link.
+    ///
+    /// Has to be its own component, rendered *inside* `<HashRouter>`
+    /// (`Shell` renders it as a sibling of `<Page>`, both inside the
+    /// router it owns): `use_navigator` reads a context `HashRouter`
+    /// provides to its descendants, which is not yet available to `Shell`
+    /// itself at the point `Shell`'s own body runs (a component's hooks
+    /// run in the context of where it's mounted, not the context of the
+    /// tree it's about to render).
+    #[derive(Properties, PartialEq)]
+    struct BootstrapRedirectProps {
+        needs_bootstrap: bool,
+    }
+
+    #[function_component(BootstrapRedirect)]
+    fn bootstrap_redirect(props: &BootstrapRedirectProps) -> Html {
+        let navigator = use_navigator();
+        let needs_bootstrap = props.needs_bootstrap;
+
+        use_effect_with(needs_bootstrap, move |needs_bootstrap| {
+            if *needs_bootstrap {
+                if let Some(navigator) = navigator {
+                    navigator.push(&Route::IdentityBootstrap);
+                }
+            }
+            || ()
+        });
+
+        html!()
     }
 
     /// The top-right identity control (`Page::tools`, patternfly-yew's own

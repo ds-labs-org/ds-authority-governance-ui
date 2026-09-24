@@ -282,7 +282,7 @@ version = "0.1.0"
 dependencies = [
  "console_error_panic_hook",
  "ds-identity-bootstrap-ui",
- "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fissuer-admin-api-integrated)",
+ "edc-identity-hub-client",
  "gloo-timers 0.3.0",
  "patternfly-yew",
  "reqwest",
@@ -298,12 +298,16 @@ dependencies = [
 [[package]]
 name = "ds-identity-bootstrap-ui"
 version = "0.1.0"
-source = "git+https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git?branch=main#a8b8d9606e038fbc948c0f4560a718e5ff043824"
+source = "git+https://github.com/ds-labs-org/ds-identity-bootstrap-ui.git?branch=feat%2Fwizard-components#ab799dbca39b9f6d9d65de2afc246c37f12a8504"
 dependencies = [
- "edc-identity-hub-client 0.2.4 (git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fv1beta-and-issuer-admin-api)",
+ "edc-identity-hub-client",
  "patternfly-yew",
+ "reqwest",
  "serde",
+ "serde_json",
+ "uuid",
  "wasm-bindgen-futures",
+ "web-sys",
  "yew",
 ]
 
@@ -316,20 +320,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 [[package]]
 name = "edc-identity-hub-client"
 version = "0.2.4"
-source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fissuer-admin-api-integrated#ca4a15e603aa20b7a5210a14ce82b0372d1a97f4"
-dependencies = [
- "chrono",
- "reqwest",
- "serde",
- "serde_json",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
-name = "edc-identity-hub-client"
-version = "0.2.4"
-source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fv1beta-and-issuer-admin-api#186e3d5e1f4424116aa35100d5cbb64dfb2e32a4"
+source = "git+https://github.com/ds-labs-org/edc-identity-hub-client.git?branch=feat%2Fidentity-bootstrap-client#088c0fde62abd59dab10fc4f8a2640675d1ead1a"
 dependencies = [
  "chrono",
  "reqwest",

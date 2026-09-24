@@ -716,6 +716,7 @@ fn delete_confirm_modal(props: &DeleteConfirmModalProps) -> Html {
 mod tests {
     use super::*;
     use wasm_bindgen_test::*;
+    use yewdux::Dispatch;
 
     wasm_bindgen_test_configure!(run_in_browser);
 
@@ -818,6 +819,18 @@ mod tests {
     /// `--firefox`).
     #[wasm_bindgen_test]
     async fn credential_definitions_prompts_when_no_participant_context_is_selected() {
+        // `AppState` is a yewdux global, shared across every test in this
+        // binary -- reset it explicitly rather than relying on whatever a
+        // previous test in the run happened to leave it as (same fix as
+        // `views::holders`'s own tests already apply; this test just never
+        // needed it before an unrelated dependency-graph change reordered
+        // wasm-bindgen-test's registration and exposed the gap).
+        Dispatch::<AppState>::global().set(AppState {
+            selected_participant_context: None,
+            config: None,
+            user: None,
+        });
+
         let document = web_sys::window()
             .expect("a window")
             .document()
