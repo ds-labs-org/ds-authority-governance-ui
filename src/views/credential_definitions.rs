@@ -8,7 +8,7 @@ use yew::prelude::*;
 use crate::api::{Api, CredentialDefinition, QuerySpec, client};
 use crate::components::*;
 use crate::format::{duration, timestamp_or};
-use crate::hooks::{Load, use_config, use_load};
+use crate::hooks::{Flight, InFlight, Load, Show, Shown, use_config, use_load};
 use crate::validation::{DefinitionErrors, validate_definition};
 
 const TABLE: &str = "Credential definitions";
@@ -21,8 +21,9 @@ const COLUMNS: [&str; 6] = [
     "",
 ];
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 enum Open {
+    #[default]
     None,
     Create,
     Edit(CredentialDefinition),
@@ -37,18 +38,19 @@ pub fn credential_definitions() -> Html {
             .query_credential_definitions(&QuerySpec::all_newest_first("createdAt"));
         client::send_json::<Vec<CredentialDefinition>>(&config, &request).await
     });
-    let open = use_state(|| Open::None);
+    let open = use_reducer(Shown::<Open>::default);
     let feedback = use_state(|| None::<Feedback>);
-    let busy = use_state(|| false);
+    let busy = use_reducer(InFlight::default);
 
     let close = {
         let open = open.clone();
-        Callback::from(move |()| open.set(Open::None))
+        Callback::from(move |()| open.dispatch(Show::Close))
     };
-    let onsaved = {
+    // Closes only the dialog that saved, never one opened since.
+    let onsaved = |which: Open| {
         let (open, feedback, reload) = (open.clone(), feedback.clone(), reload.clone());
         Callback::from(move |message: String| {
-            open.set(Open::None);
+            open.dispatch(Show::CloseIf(which.clone()));
             feedback.set(Some(Feedback::Success(message)));
             reload.emit(());
         })
@@ -69,12 +71,15 @@ pub fn credential_definitions() -> Html {
                 busy.clone(),
                 config.clone(),
             );
-            busy.set(true);
+            if busy.has(&id) {
+                return;
+            }
+            busy.dispatch(Flight::Start(id.clone()));
             spawn_local(async move {
                 let request = Api::new(&config).delete_credential_definition(&id);
                 let result = client::send_empty(&config, &request).await;
-                busy.set(false);
-                open.set(Open::None);
+                busy.dispatch(Flight::Done(id.clone()));
+                open.dispatch(Show::CloseIf(Open::Delete(id.clone())));
                 feedback.set(Some(match result {
                     Ok(()) => Feedback::Success(format!("Deleted credential definition {id}.")),
                     Err(e) => Feedback::error("Could not delete credential definition", e),
@@ -86,7 +91,7 @@ pub fn credential_definitions() -> Html {
 
     let open_create = {
         let open = open.clone();
-        Callback::from(move |_| open.set(Open::Create))
+        Callback::from(move |_| open.dispatch(Show::Open(Open::Create)))
     };
 
     let body = match &definitions {
@@ -97,13 +102,13 @@ pub fn credential_definitions() -> Html {
         Load::Ready(list) => definitions_table(list, &open),
     };
 
-    let dialog = match &*open {
+    let dialog = match &open.0 {
         Open::None => html!(),
         Open::Create => {
-            html!(<DefinitionDialog existing={None} onclose={close.clone()} onsaved={onsaved.clone()} />)
+            html!(<DefinitionDialog existing={None} onclose={close.clone()} onsaved={onsaved(Open::Create)} />)
         }
         Open::Edit(def) => {
-            html!(<DefinitionDialog existing={Some(def.clone())} onclose={close.clone()} onsaved={onsaved.clone()} />)
+            html!(<DefinitionDialog existing={Some(def.clone())} onclose={close.clone()} onsaved={onsaved(Open::Edit(def.clone()))} />)
         }
         Open::Delete(id) => {
             let id_for_confirm = id.clone();
@@ -111,7 +116,7 @@ pub fn credential_definitions() -> Html {
                 <ConfirmDialog
                     title="Delete credential definition"
                     confirm_label="Delete"
-                    busy={*busy}
+                    busy={busy.has(id)}
                     onclose={close.clone()}
                     onconfirm={ondelete.reform(move |()| id_for_confirm.clone())}
                 >
@@ -133,7 +138,7 @@ pub fn credential_definitions() -> Html {
             <PageSection>
                 <FeedbackAlert feedback={(*feedback).clone()} onclose={{ let f = feedback.clone(); Callback::from(move |()| f.set(None)) }} />
                 <div class="pf-v6-u-mb-md">
-                    <Button variant={ButtonVariant::Primary} label="Create credential definition" onclick={open_create} />
+                    <PfButton variant={ButtonVariant::Primary} label="Create credential definition" onclick={open_create} />
                 </div>
                 { body }
             </PageSection>
@@ -142,7 +147,7 @@ pub fn credential_definitions() -> Html {
     }
 }
 
-fn definitions_table(list: &[CredentialDefinition], open: &UseStateHandle<Open>) -> Html {
+fn definitions_table(list: &[CredentialDefinition], open: &UseReducerHandle<Shown<Open>>) -> Html {
     let rows = if list.is_empty() {
         empty_row(
             COLUMNS.len(),
@@ -154,11 +159,11 @@ fn definitions_table(list: &[CredentialDefinition], open: &UseStateHandle<Open>)
             .map(|def| {
                 let edit = {
                     let (open, def) = (open.clone(), def.clone());
-                    Callback::from(move |_| open.set(Open::Edit(def.clone())))
+                    Callback::from(move |_| open.dispatch(Show::Open(Open::Edit(def.clone()))))
                 };
                 let delete = {
                     let (open, id) = (open.clone(), def.id.clone());
-                    Callback::from(move |_| open.set(Open::Delete(id.clone())))
+                    Callback::from(move |_| open.dispatch(Show::Open(Open::Delete(id.clone()))))
                 };
                 html! {
                     <tr class="pf-v6-c-table__tr" key={def.id.clone()}>
@@ -167,13 +172,12 @@ fn definitions_table(list: &[CredentialDefinition], open: &UseStateHandle<Open>)
                         { cell("Format", def.format.clone()) }
                         <td class="pf-v6-c-table__td" data-label="Validity (seconds)" title={duration(def.validity)}>
                             { def.validity }
-                            <span class="pf-v6-u-color-200">{ format!(" ({})", duration(def.validity)) }</span>
                         </td>
                         { cell("Created", timestamp_or(def.created_at, "-")) }
                         <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
                             <div class="pf-v6-l-flex pf-m-nowrap pf-m-gap-sm">
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={edit} />
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={delete} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={edit} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={delete} />
                             </div>
                         </td>
                     </tr>

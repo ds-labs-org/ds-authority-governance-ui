@@ -178,7 +178,7 @@ fn count_card(title: &'static str, value: &Load<String>, footer: Html) -> Html {
             html!(<ErrorAlert title={format!("Could not load {}", title.to_lowercase())} message={message.clone()} />)
         }
         Load::Ready(n) => {
-            html!(<p class="pf-v6-u-font-size-4xl pf-v6-u-font-weight-bold">{ format!(" {n} ") }</p>)
+            html!(<p class="pf-v6-u-font-size-4xl pf-v6-u-font-weight-bold" data-testid="count">{ n.clone() }</p>)
         }
     };
     html! {

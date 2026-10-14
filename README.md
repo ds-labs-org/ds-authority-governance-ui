@@ -17,8 +17,8 @@ shaped) and the trusted issuers registry. The wire contract is
 | `/` | Dashboard: counts (credential definitions, pending holders, issuance processes in flight, issued credentials active/revoked), a **Review pending approvals** link when holders wait, and this issuer's trust status in the registry per credential type | done |
 | `/credential-definitions` | Credential Definitions: table, create/edit dialog with validation, delete with confirmation | done |
 | `/holders` | Holders: **Pending approval** queue (Approve / Reject with confirmation), all holders with a status filter, Register holder dialog | done |
-| `/credentials` | Credentials: issued credentials (Revoke with confirmation) and issuance processes; Refresh button, auto-refresh every 3 s while a process is SUBMITTED/APPROVED | done |
-| `/trusted-issuers` | Trusted Issuers: registry table with role/status filters, add/edit dialog, Suspend/Activate/Revoke, Delete with confirmation, Check trust form showing the accreditation chain; read-only banner and disabled write buttons when `GET {registry}/v1/admin` is not 2xx | done |
+| `/credentials` | Credentials: issued credentials (Revoke with confirmation) and issuance processes; Refresh button, auto-refresh every 3 s while a delivery is in flight (APPROVED), every 30 s while only SUBMITTED processes wait for approval | done |
+| `/trusted-issuers` | Trusted Issuers: registry table with role/status filters, add/edit dialog, Suspend/Activate/Revoke, Delete with confirmation, Check trust form showing the accreditation chain (re-run after every write, out-of-order answers dropped); read-only banner and disabled write buttons when `GET {registry}/v1/admin` is not 2xx | done |
 | `/identity-bootstrap` | mounts `ds_identity_bootstrap_ui::ParticipantContextPanel` | placeholder - see below |
 
 UX conventions shared by every view: one `h1` per page (the nav label),
@@ -27,6 +27,11 @@ tables, errors in a danger alert (`role="alert"`) carrying the backend's
 `{"error": ...}` message, success confirmations as inline success alerts
 (`role="status"`), timestamps rendered as UTC, long DIDs/ids truncated with
 CSS (full value in the DOM and in `title`), dialogs named by their title.
+Dialogs take focus on open (first field, or the confirm button), trap Tab,
+close on Escape and give focus back to the button that opened them. Below
+1200px the nav sidebar starts collapsed behind the masthead toggle and
+closes after each nav click. Row actions track every in-flight id, and a
+finished action only closes the dialog it opened itself.
 The e2e suite (`e2e/`, Playwright) relies on these accessible names; its
 README lists them.
 

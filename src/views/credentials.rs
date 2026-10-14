@@ -12,11 +12,27 @@ use crate::api::{
 };
 use crate::components::*;
 use crate::format::{timestamp, timestamp_or};
-use crate::hooks::{Load, use_config, use_load, use_polling};
+use crate::hooks::{Flight, InFlight, Load, Show, Shown, use_config, use_load, use_polling};
 
 const ISSUED_COLUMNS: [&str; 7] = ["ID", "Type", "Holder", "Issued", "Expires", "Status", ""];
 const PROCESS_COLUMNS: [&str; 5] = ["ID", "Holder", "Credential definitions", "State", "Updated"];
-const POLL_EVERY: Duration = Duration::from_secs(3);
+/// While a delivery is in flight (APPROVED) the state changes within
+/// seconds; SUBMITTED waits on a human, so only a slow background check.
+const POLL_DELIVERY: Duration = Duration::from_secs(3);
+const POLL_WAITING: Duration = Duration::from_secs(30);
+
+/// How often to refresh given the current process states, if at all.
+fn poll_period(states: impl IntoIterator<Item = ProcessState>) -> Option<Duration> {
+    let mut period = None;
+    for state in states {
+        match state {
+            ProcessState::Approved => return Some(POLL_DELIVERY),
+            ProcessState::Submitted => period = Some(POLL_WAITING),
+            _ => {}
+        }
+    }
+    period
+}
 
 fn credential_status_label(status: CredentialStatus) -> Html {
     let color = match status {
@@ -50,8 +66,8 @@ pub fn credentials() -> Html {
             Api::new(&config).query_issuance_processes(&QuerySpec::all_newest_first("createdAt"));
         client::send_json::<Vec<IssuanceProcess>>(&config, &request).await
     });
-    let revoking = use_state(|| None::<IssuedCredential>);
-    let busy = use_state(|| false);
+    let revoking = use_reducer(Shown::<Option<IssuedCredential>>::default);
+    let busy = use_reducer(InFlight::default);
     let feedback = use_state(|| None::<Feedback>);
 
     let reload_all = {
@@ -61,14 +77,15 @@ pub fn credentials() -> Html {
             b.emit(());
         })
     };
-    let in_flight = processes
+    let period = processes
         .ready()
-        .is_some_and(|list| list.iter().any(|p| p.state.is_in_flight()));
-    use_polling(in_flight, POLL_EVERY, reload_all.clone());
+        .and_then(|list| poll_period(list.iter().map(|p| p.state)));
+    let delivering = period == Some(POLL_DELIVERY);
+    use_polling(period, reload_all.clone());
 
     let close = {
         let revoking = revoking.clone();
-        Callback::from(move |()| revoking.set(None))
+        Callback::from(move |()| revoking.dispatch(Show::Close))
     };
     let onrevoke = {
         let (revoking, busy, feedback, reload, config) = (
@@ -86,12 +103,15 @@ pub fn credentials() -> Html {
                 reload.clone(),
                 config.clone(),
             );
-            busy.set(true);
+            if busy.has(&credential.id) {
+                return;
+            }
+            busy.dispatch(Flight::Start(credential.id.clone()));
             spawn_local(async move {
                 let request = Api::new(&config).revoke_credential(&credential.id);
                 let result = client::send_empty(&config, &request).await;
-                busy.set(false);
-                revoking.set(None);
+                busy.dispatch(Flight::Done(credential.id.clone()));
+                revoking.dispatch(Show::CloseIf(Some(credential.clone())));
                 feedback.set(Some(match result {
                     Ok(()) => Feedback::Success(format!(
                         "Revoked {}. The status list now marks it revoked.",
@@ -109,7 +129,7 @@ pub fn credentials() -> Html {
         Load::Failed(message) => {
             html!(<ErrorAlert title="Could not load issued credentials" message={message.clone()} />)
         }
-        Load::Ready(list) => issued_table(list, &revoking),
+        Load::Ready(list) => issued_table(list, &revoking, &busy),
     };
     let processes_body = match &processes {
         Load::Loading => html!(<Loading label="Loading issuance processes" />),
@@ -119,7 +139,7 @@ pub fn credentials() -> Html {
         Load::Ready(list) => process_table(list),
     };
 
-    let dialog = match &*revoking {
+    let dialog = match &revoking.0 {
         None => html!(),
         Some(credential) => {
             let target = credential.clone();
@@ -127,7 +147,7 @@ pub fn credentials() -> Html {
                 <ConfirmDialog
                     title="Revoke credential"
                     confirm_label="Revoke"
-                    busy={*busy}
+                    busy={busy.has(&credential.id)}
                     onclose={close}
                     onconfirm={onrevoke.reform(move |()| target.clone())}
                 >
@@ -153,9 +173,9 @@ pub fn credentials() -> Html {
             <PageSection>
                 <FeedbackAlert feedback={(*feedback).clone()} onclose={{ let f = feedback.clone(); Callback::from(move |()| f.set(None)) }} />
                 <div class="pf-v6-l-flex pf-m-align-items-center pf-m-gap-sm pf-v6-u-mb-md">
-                    <Button variant={ButtonVariant::Secondary} label="Refresh" icon={Icon::SyncAlt} onclick={reload_all.reform(|_| ())} />
-                    if in_flight {
-                        <span class="pf-v6-u-color-200">{ "Issuance in progress, refreshing automatically every few seconds." }</span>
+                    <PfButton variant={ButtonVariant::Secondary} label="Refresh" icon={Icon::SyncAlt} onclick={reload_all.reform(|_| ())} />
+                    if delivering {
+                        <span class="pf-v6-u-color-200">{ "Delivery in progress, refreshing automatically every few seconds." }</span>
                     }
                 </div>
                 <section class="pf-v6-u-mb-xl" aria-labelledby="issued-title">
@@ -174,7 +194,8 @@ pub fn credentials() -> Html {
 
 fn issued_table(
     list: &[IssuedCredential],
-    revoking: &UseStateHandle<Option<IssuedCredential>>,
+    revoking: &UseReducerHandle<Shown<Option<IssuedCredential>>>,
+    busy: &InFlight,
 ) -> Html {
     let rows = if list.is_empty() {
         empty_row(
@@ -187,7 +208,7 @@ fn issued_table(
             .map(|credential| {
                 let revoke = {
                     let (revoking, credential) = (revoking.clone(), credential.clone());
-                    Callback::from(move |_| revoking.set(Some(credential.clone())))
+                    Callback::from(move |_| revoking.dispatch(Show::Open(Some(credential.clone()))))
                 };
                 let revoked = credential.status == CredentialStatus::Revoked;
                 html! {
@@ -199,7 +220,7 @@ fn issued_table(
                         { cell("Expires", timestamp_or(credential.expires_at, "Never")) }
                         { cell("Status", credential_status_label(credential.status)) }
                         <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
-                            <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={revoke} disabled={revoked} />
+                            <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={revoke} disabled={revoked || busy.has(&credential.id)} />
                         </td>
                     </tr>
                 }
@@ -246,5 +267,22 @@ fn process_table(list: &[IssuanceProcess]) -> Html {
             { header_row(&PROCESS_COLUMNS) }
             <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn polls_fast_only_while_a_delivery_is_in_flight() {
+        use ProcessState::*;
+        assert_eq!(
+            poll_period([Delivered, Approved, Submitted]),
+            Some(POLL_DELIVERY)
+        );
+        assert_eq!(poll_period([Submitted, Delivered]), Some(POLL_WAITING));
+        assert_eq!(poll_period([Delivered, Rejected, Errored]), None);
+        assert_eq!(poll_period([]), None);
     }
 }

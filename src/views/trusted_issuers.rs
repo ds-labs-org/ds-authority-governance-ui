@@ -12,7 +12,7 @@ use crate::api::{
 };
 use crate::components::*;
 use crate::format::{date_input, timestamp_or};
-use crate::hooks::{Load, use_config, use_load};
+use crate::hooks::{Flight, InFlight, Load, Revision, Show, Shown, use_config, use_load};
 use crate::validation::{IssuerErrors, IssuerForm};
 
 const TABLE: &str = "Trusted issuers";
@@ -27,13 +27,16 @@ const COLUMNS: [&str; 8] = [
     "",
 ];
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 enum Open {
+    #[default]
     None,
     Add,
     Edit(IssuerRecord),
-    Revoke(IssuerRecord),
-    Delete(IssuerRecord),
+    /// DID to revoke.
+    Revoke(String),
+    /// DID to delete.
+    Delete(String),
 }
 
 pub fn registry_status_label(status: RegistryStatus) -> Html {
@@ -83,9 +86,11 @@ pub fn trusted_issuers() -> Html {
         list(config, filter).await.map(|l| l.items)
     });
 
-    let open = use_state(|| Open::None);
+    let open = use_reducer(Shown::<Open>::default);
+    // Bumped after every write: the trust check re-runs its last query.
+    let revision = use_reducer(Revision::default);
     let feedback = use_state(|| None::<Feedback>);
-    let busy = use_state(|| false);
+    let busy = use_reducer(InFlight::default);
 
     let writable = matches!(admin, Load::Ready(None));
     let reload = {
@@ -97,31 +102,40 @@ pub fn trusted_issuers() -> Html {
     };
     let close = {
         let open = open.clone();
-        Callback::from(move |()| open.set(Open::None))
+        Callback::from(move |()| open.dispatch(Show::Close))
     };
 
     let set_status = {
-        let (open, feedback, reload, busy, config) = (
+        let (open, feedback, reload, busy, config, revision) = (
             open.clone(),
             feedback.clone(),
             reload.clone(),
             busy.clone(),
             config.clone(),
+            revision.clone(),
         );
         Callback::from(move |(did, status): (String, RegistryStatus)| {
-            let (open, feedback, reload, busy, config) = (
+            let (open, feedback, reload, busy, config, revision) = (
                 open.clone(),
                 feedback.clone(),
                 reload.clone(),
                 busy.clone(),
                 config.clone(),
+                revision.clone(),
             );
-            busy.set(true);
+            if busy.has(&did) {
+                return;
+            }
+            busy.dispatch(Flight::Start(did.clone()));
             spawn_local(async move {
                 let request = Api::new(&config).set_issuer_status(&did, status);
                 let result = client::send_empty(&config, &request).await;
-                busy.set(false);
-                open.set(Open::None);
+                busy.dispatch(Flight::Done(did.clone()));
+                // Suspend/Activate have no dialog; Revoke has its confirmation.
+                if status == RegistryStatus::Revoked {
+                    open.dispatch(Show::CloseIf(Open::Revoke(did.clone())));
+                }
+                revision.dispatch(());
                 let verb = match status {
                     RegistryStatus::Active => "activate",
                     RegistryStatus::Suspended => "suspend",
@@ -137,27 +151,33 @@ pub fn trusted_issuers() -> Html {
     };
 
     let ondelete = {
-        let (open, feedback, reload, busy, config) = (
+        let (open, feedback, reload, busy, config, revision) = (
             open.clone(),
             feedback.clone(),
             reload.clone(),
             busy.clone(),
             config.clone(),
+            revision.clone(),
         );
         Callback::from(move |did: String| {
-            let (open, feedback, reload, busy, config) = (
+            let (open, feedback, reload, busy, config, revision) = (
                 open.clone(),
                 feedback.clone(),
                 reload.clone(),
                 busy.clone(),
                 config.clone(),
+                revision.clone(),
             );
-            busy.set(true);
+            if busy.has(&did) {
+                return;
+            }
+            busy.dispatch(Flight::Start(did.clone()));
             spawn_local(async move {
                 let request = Api::new(&config).delete_issuer(&did);
                 let result = client::send_empty(&config, &request).await;
-                busy.set(false);
-                open.set(Open::None);
+                busy.dispatch(Flight::Done(did.clone()));
+                open.dispatch(Show::CloseIf(Open::Delete(did.clone())));
+                revision.dispatch(());
                 feedback.set(Some(match result {
                     Ok(()) => Feedback::Success(format!("Deleted {did} from the registry.")),
                     Err(e) => Feedback::error("Could not delete trusted issuer", e),
@@ -167,10 +187,16 @@ pub fn trusted_issuers() -> Html {
         })
     };
 
-    let onsaved = {
-        let (open, feedback, reload) = (open.clone(), feedback.clone(), reload.clone());
+    let onsaved = |which: Open| {
+        let (open, feedback, reload, revision) = (
+            open.clone(),
+            feedback.clone(),
+            reload.clone(),
+            revision.clone(),
+        );
         Callback::from(move |message: String| {
-            open.set(Open::None);
+            open.dispatch(Show::CloseIf(which.clone()));
+            revision.dispatch(());
             feedback.set(Some(Feedback::Success(message)));
             reload.emit(());
         })
@@ -222,46 +248,46 @@ pub fn trusted_issuers() -> Html {
         }
         Load::Ready(list) => {
             let filtered = !role_filter.is_empty() || !status_filter.is_empty();
-            issuers_table(&list.items, filtered, writable, *busy, &open, &set_status)
+            issuers_table(&list.items, filtered, writable, &busy, &open, &set_status)
         }
     };
 
-    let dialog = match &*open {
+    let dialog = match &open.0 {
         Open::None => html!(),
         Open::Add => {
-            html!(<IssuerDialog existing={None} accreditors={accreditors.clone()} onclose={close.clone()} onsaved={onsaved.clone()} />)
+            html!(<IssuerDialog existing={None} accreditors={accreditors.clone()} onclose={close.clone()} onsaved={onsaved(Open::Add)} />)
         }
         Open::Edit(record) => {
-            html!(<IssuerDialog existing={Some(record.clone())} accreditors={accreditors.clone()} onclose={close.clone()} onsaved={onsaved.clone()} />)
+            html!(<IssuerDialog existing={Some(record.clone())} accreditors={accreditors.clone()} onclose={close.clone()} onsaved={onsaved(Open::Edit(record.clone()))} />)
         }
-        Open::Revoke(record) => {
-            let did = record.did.clone();
+        Open::Revoke(target) => {
+            let did = target.clone();
             html! {
                 <ConfirmDialog
                     title="Revoke trusted issuer"
                     confirm_label="Revoke"
-                    busy={*busy}
+                    busy={busy.has(target)}
                     onclose={close.clone()}
                     onconfirm={set_status.reform(move |()| (did.clone(), RegistryStatus::Revoked))}
                 >
-                    <p>{ "Revoke " }<strong class="pf-v6-u-text-break-word">{ record.did.clone() }</strong>{ "?" }</p>
+                    <p>{ "Revoke " }<strong class="pf-v6-u-text-break-word">{ target.clone() }</strong>{ "?" }</p>
                     <p class="pf-v6-u-mt-sm">
                         { "Its credentials, and those of every party it accredited, stop being trusted. Use Suspend for a temporary stop." }
                     </p>
                 </ConfirmDialog>
             }
         }
-        Open::Delete(record) => {
-            let did = record.did.clone();
+        Open::Delete(target) => {
+            let did = target.clone();
             html! {
                 <ConfirmDialog
                     title="Delete trusted issuer"
                     confirm_label="Delete"
-                    busy={*busy}
+                    busy={busy.has(target)}
                     onclose={close.clone()}
                     onconfirm={ondelete.reform(move |()| did.clone())}
                 >
-                    <p>{ "Delete " }<strong class="pf-v6-u-text-break-word">{ record.did.clone() }</strong>{ " from the registry?" }</p>
+                    <p>{ "Delete " }<strong class="pf-v6-u-text-break-word">{ target.clone() }</strong>{ " from the registry?" }</p>
                     <p class="pf-v6-u-mt-sm">
                         { "The registry refuses while it still accredits other parties." }
                     </p>
@@ -272,7 +298,7 @@ pub fn trusted_issuers() -> Html {
 
     let add = {
         let open = open.clone();
-        Callback::from(move |_| open.set(Open::Add))
+        Callback::from(move |_| open.dispatch(Show::Open(Open::Add)))
     };
 
     html! {
@@ -289,7 +315,7 @@ pub fn trusted_issuers() -> Html {
                 }
                 <FeedbackAlert feedback={(*feedback).clone()} onclose={{ let f = feedback.clone(); Callback::from(move |()| f.set(None)) }} />
                 <div class="pf-v6-l-flex pf-m-align-items-flex-end pf-m-gap-md pf-v6-u-mb-md">
-                    <Button variant={ButtonVariant::Primary} label="Add trusted issuer" onclick={add} disabled={!writable} />
+                    <PfButton variant={ButtonVariant::Primary} label="Add trusted issuer" onclick={add} disabled={!writable} />
                     <div>
                         <label class="pf-v6-c-form__label" for="issuer-role-filter">
                             <span class="pf-v6-c-form__label-text">{ "Filter by role" }</span>
@@ -306,7 +332,7 @@ pub fn trusted_issuers() -> Html {
                 { table }
             </PageSection>
             <PageSection>
-                <TrustCheck known={known} />
+                <TrustCheck known={known} revision={revision.0} />
             </PageSection>
             { dialog }
         </>
@@ -317,8 +343,8 @@ fn issuers_table(
     items: &[IssuerRecord],
     filtered: bool,
     writable: bool,
-    busy: bool,
-    open: &UseStateHandle<Open>,
+    busy: &InFlight,
+    open: &UseReducerHandle<Shown<Open>>,
     set_status: &Callback<(String, RegistryStatus)>,
 ) -> Html {
     let rows = if items.is_empty() {
@@ -341,13 +367,13 @@ fn issuers_table(
             .map(|record| {
                 let opener = |make: fn(IssuerRecord) -> Open| {
                     let (open, record) = (open.clone(), record.clone());
-                    Callback::from(move |_: MouseEvent| open.set(make(record.clone())))
+                    Callback::from(move |_: MouseEvent| open.dispatch(Show::Open(make(record.clone()))))
                 };
                 let status_to = |status: RegistryStatus| {
                     let did = record.did.clone();
                     set_status.reform(move |_: MouseEvent| (did.clone(), status))
                 };
-                let disabled = !writable || busy;
+                let disabled = !writable || busy.has(&record.did);
                 html! {
                     <tr class="pf-v6-c-table__tr" key={record.did.clone()}>
                         { long_cell("DID", &record.did) }
@@ -362,16 +388,16 @@ fn issuers_table(
                         { cell("Valid until", record.valid_until.map_or_else(|| "No expiry".to_string(), |t| timestamp_or(Some(t), ""))) }
                         <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
                             <div class="pf-v6-l-flex pf-m-gap-xs" style="min-width: 13rem;">
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={opener(Open::Edit)} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={opener(Open::Edit)} {disabled} />
                                 if record.status == RegistryStatus::Active {
-                                    <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Suspend" onclick={status_to(RegistryStatus::Suspended)} {disabled} />
+                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Suspend" onclick={status_to(RegistryStatus::Suspended)} {disabled} />
                                 } else {
-                                    <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
+                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
                                 }
                                 if record.status != RegistryStatus::Revoked {
-                                    <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(Open::Revoke)} {disabled} />
+                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(|r| Open::Revoke(r.did))} {disabled} />
                                 }
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(Open::Delete)} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(|r| Open::Delete(r.did))} {disabled} />
                             </div>
                         </td>
                     </tr>
@@ -605,6 +631,9 @@ enum Check {
 struct TrustCheckProps {
     /// Records to annotate chain entries with.
     known: Vec<IssuerRecord>,
+    /// Changes after every registry write: the last check is re-run so a
+    /// shown answer never outlives the data it was computed from.
+    revision: u32,
 }
 
 /// `GET /v1/issuers/{did}/types/{type}` as a form.
@@ -615,14 +644,57 @@ fn trust_check(props: &TrustCheckProps) -> Html {
     let credential_type = use_state(String::new);
     let errors = use_state(|| (None::<String>, None::<String>));
     let state = use_state(|| Check::Idle);
+    // Only the answer to the newest request is shown.
+    let sequence = use_mut_ref(|| 0u32);
+    let last_query = use_mut_ref(|| None::<(String, String)>);
+
+    let run = {
+        let (state, config, sequence, last_query) = (
+            state.clone(),
+            config.clone(),
+            sequence.clone(),
+            last_query.clone(),
+        );
+        Callback::from(move |(d, t): (String, String)| {
+            let ticket = {
+                let mut seq = sequence.borrow_mut();
+                *seq += 1;
+                *seq
+            };
+            *last_query.borrow_mut() = Some((d.clone(), t.clone()));
+            let (state, config, sequence) = (state.clone(), config.clone(), sequence.clone());
+            state.set(Check::Checking);
+            spawn_local(async move {
+                let request = Api::new(&config).check_trust(&d, &t);
+                let result = client::send_json::<TrustDecision>(&config, &request).await;
+                if *sequence.borrow() != ticket {
+                    return;
+                }
+                state.set(match result {
+                    Ok(decision) => Check::Done {
+                        did: d,
+                        credential_type: t,
+                        decision,
+                    },
+                    Err(e) => Check::Failed(e.to_string()),
+                });
+            });
+        })
+    };
+
+    {
+        let (run, last_query) = (run.clone(), last_query.clone());
+        use_effect_with(props.revision, move |_| {
+            let last = last_query.borrow().clone();
+            if let Some(query) = last {
+                run.emit(query);
+            }
+            || ()
+        });
+    }
 
     let submit = {
-        let (did, credential_type, errors, state) = (
-            did.clone(),
-            credential_type.clone(),
-            errors.clone(),
-            state.clone(),
-        );
+        let (did, credential_type, errors) = (did.clone(), credential_type.clone(), errors.clone());
         Callback::from(move |()| {
             let (d, t) = (did.trim().to_string(), credential_type.trim().to_string());
             let e = (
@@ -632,24 +704,9 @@ fn trust_check(props: &TrustCheckProps) -> Html {
             );
             let invalid = e.0.is_some() || e.1.is_some();
             errors.set(e);
-            if invalid {
-                return;
+            if !invalid {
+                run.emit((d, t));
             }
-            let (state, config) = (state.clone(), config.clone());
-            state.set(Check::Checking);
-            spawn_local(async move {
-                let request = Api::new(&config).check_trust(&d, &t);
-                state.set(
-                    match client::send_json::<TrustDecision>(&config, &request).await {
-                        Ok(decision) => Check::Done {
-                            did: d,
-                            credential_type: t,
-                            decision,
-                        },
-                        Err(e) => Check::Failed(e.to_string()),
-                    },
-                );
-            });
         })
     };
     let set = |s: &UseStateHandle<String>| {
@@ -733,7 +790,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
                 </datalist>
                 <div class="pf-v6-c-form__group pf-m-action">
                     <div class="pf-v6-c-form__actions">
-                        <Button variant={ButtonVariant::Secondary} r#type={ButtonType::Submit} label="Check" disabled={*state == Check::Checking} />
+                        <PfButton variant={ButtonVariant::Secondary} r#type={ButtonType::Submit} label="Check" disabled={*state == Check::Checking} />
                     </div>
                 </div>
                 <div role="status" aria-live="polite">{ result }</div>

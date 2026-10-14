@@ -234,12 +234,38 @@ pub struct DialogProps {
 #[function_component(Dialog)]
 pub fn dialog(props: &DialogProps) -> Html {
     let title_id = use_memo((), |_| format!("dialog-title-{}", next_id()));
+    let box_ref = use_node_ref();
+
+    // On open: remember the opener, move focus into the dialog. On close:
+    // give focus back to the opener if it is still on the page.
+    {
+        let box_ref = box_ref.clone();
+        use_effect_with((), move |_| {
+            let opener = active_element();
+            if let Some(dialog) = box_ref.cast::<web_sys::Element>() {
+                initial_focus(&dialog);
+            }
+            move || {
+                if let Some(opener) = opener.filter(|o| o.is_connected()) {
+                    let _ = opener.focus();
+                }
+            }
+        });
+    }
+
     let onkeydown = {
-        let onclose = props.onclose.clone();
-        Callback::from(move |e: KeyboardEvent| {
-            if e.key() == "Escape" {
+        let (onclose, box_ref) = (props.onclose.clone(), box_ref.clone());
+        Callback::from(move |e: KeyboardEvent| match e.key().as_str() {
+            "Escape" => {
+                e.prevent_default();
                 onclose.emit(());
             }
+            "Tab" => {
+                if let Some(dialog) = box_ref.cast::<web_sys::Element>() {
+                    trap_tab(&dialog, &e);
+                }
+            }
+            _ => {}
         })
     };
     let dialog = html! {
@@ -250,6 +276,8 @@ pub fn dialog(props: &DialogProps) -> Html {
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby={(*title_id).clone()}
+                    tabindex="-1"
+                    ref={box_ref}
                     {onkeydown}
                 >
                     <div class="pf-v6-c-modal-box__close">
@@ -284,6 +312,85 @@ pub fn dialog(props: &DialogProps) -> Html {
     {
         Some(body) => create_portal(dialog, body.into()),
         None => dialog,
+    }
+}
+
+const FOCUSABLE: &str = "input:not([disabled]):not([type=hidden]), select:not([disabled]), \
+    textarea:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])";
+const FIELDS: &str = "input:not([disabled]):not([readonly]):not([type=hidden]), \
+    select:not([disabled]), textarea:not([disabled]):not([readonly])";
+
+fn active_element() -> Option<web_sys::HtmlElement> {
+    use web_sys::wasm_bindgen::JsCast;
+    web_sys::window()?
+        .document()?
+        .active_element()?
+        .dyn_into::<web_sys::HtmlElement>()
+        .ok()
+}
+
+fn elements(root: &web_sys::Element, selector: &str) -> Vec<web_sys::HtmlElement> {
+    use web_sys::wasm_bindgen::JsCast;
+    let Ok(list) = root.query_selector_all(selector) else {
+        return Vec::new();
+    };
+    (0..list.length())
+        .filter_map(|i| list.item(i))
+        .filter_map(|n| n.dyn_into::<web_sys::HtmlElement>().ok())
+        .collect()
+}
+
+/// First editable field in the body; else the first footer button (the
+/// confirm action); else the dialog itself.
+fn initial_focus(dialog: &web_sys::Element) {
+    use web_sys::wasm_bindgen::JsCast;
+    let body_field = dialog
+        .query_selector(".pf-v6-c-modal-box__body")
+        .ok()
+        .flatten()
+        .and_then(|body| elements(&body, FIELDS).into_iter().next());
+    let footer_button = || {
+        dialog
+            .query_selector(".pf-v6-c-modal-box__footer")
+            .ok()
+            .flatten()
+            .and_then(|footer| {
+                elements(&footer, "button:not([disabled])")
+                    .into_iter()
+                    .next()
+            })
+    };
+    let target = body_field
+        .or_else(footer_button)
+        .or_else(|| dialog.clone().dyn_into::<web_sys::HtmlElement>().ok());
+    if let Some(target) = target {
+        let _ = target.focus();
+    }
+}
+
+/// Keeps Tab / Shift+Tab cycling inside the dialog.
+fn trap_tab(dialog: &web_sys::Element, e: &KeyboardEvent) {
+    let focusable = elements(dialog, FOCUSABLE);
+    let (Some(first), Some(last)) = (focusable.first(), focusable.last()) else {
+        e.prevent_default();
+        return;
+    };
+    let active = active_element();
+    let inside = active
+        .as_ref()
+        .is_some_and(|a| focusable.iter().any(|f| f == a));
+    let target = if !inside {
+        Some(first)
+    } else if e.shift_key() && active.as_ref() == Some(first) {
+        Some(last)
+    } else if !e.shift_key() && active.as_ref() == Some(last) {
+        Some(first)
+    } else {
+        None
+    };
+    if let Some(target) = target {
+        e.prevent_default();
+        let _ = target.focus();
     }
 }
 
@@ -512,13 +619,13 @@ pub struct ConfirmDialogProps {
 pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
     let footer = html! {
         <>
-            <Button
+            <PfButton
                 variant={ButtonVariant::Danger}
                 label={props.confirm_label.to_string()}
                 disabled={props.busy}
                 onclick={props.onconfirm.reform(|_| ())}
             />
-            <Button
+            <PfButton
                 variant={ButtonVariant::Link}
                 label="Cancel"
                 onclick={props.onclose.reform(|_| ())}
@@ -541,14 +648,14 @@ pub fn form_footer(
 ) -> Html {
     html! {
         <>
-            <Button
+            <PfButton
                 variant={ButtonVariant::Primary}
                 r#type={ButtonType::Submit}
                 form={form}
                 label={submit}
                 disabled={busy}
             />
-            <Button variant={ButtonVariant::Link} label="Cancel" onclick={onclose.reform(|_| ())} />
+            <PfButton variant={ButtonVariant::Link} label="Cancel" onclick={onclose.reform(|_| ())} />
         </>
     }
 }
@@ -559,4 +666,49 @@ pub fn on_submit(callback: Callback<()>) -> Callback<SubmitEvent> {
         e.prevent_default();
         callback.emit(());
     })
+}
+
+// ------------------------------------------------------------ buttons ---
+
+#[derive(Clone, PartialEq, Properties)]
+pub struct PfButtonProps {
+    pub label: AttrValue,
+    #[prop_or_default]
+    pub variant: ButtonVariant,
+    #[prop_or_default]
+    pub size: ButtonSize,
+    #[prop_or_default]
+    pub disabled: bool,
+    #[prop_or_default]
+    pub onclick: Callback<MouseEvent>,
+    #[prop_or_default]
+    pub r#type: ButtonType,
+    #[prop_or_default]
+    pub form: Option<AttrValue>,
+    #[prop_or_default]
+    pub icon: Option<Icon>,
+}
+
+/// A PatternFly button that, unlike `patternfly_yew::Button`, keeps focus
+/// after a click, so a dialog it opens can hand focus back to it.
+#[function_component(PfButton)]
+pub fn pf_button(props: &PfButtonProps) -> Html {
+    let mut classes = classes!("pf-v6-c-button");
+    classes.extend(props.variant.as_classes());
+    props.size.extend_classes(&mut classes);
+    let label = html! { <span class="pf-v6-c-button__text">{ props.label.clone() }</span> };
+    html! {
+        <button
+            class={classes}
+            type={props.r#type}
+            form={props.form.clone()}
+            disabled={props.disabled}
+            onclick={props.onclick.clone()}
+        >
+            if let Some(icon) = props.icon {
+                <span class="pf-v6-c-button__icon pf-m-start">{ icon }</span>
+            }
+            { label }
+        </button>
+    }
 }

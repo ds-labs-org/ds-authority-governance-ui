@@ -7,14 +7,15 @@ use yew::prelude::*;
 use crate::api::{Api, Holder, HolderStatus, QuerySpec, client};
 use crate::components::*;
 use crate::format::timestamp;
-use crate::hooks::{Load, use_config, use_load};
+use crate::hooks::{Flight, InFlight, Load, Show, Shown, use_config, use_load};
 use crate::validation::{HolderErrors, validate_holder};
 
 const PENDING_COLUMNS: [&str; 4] = ["DID", "Name", "Requested", ""];
 const ALL_COLUMNS: [&str; 5] = ["DID", "Name", "Status", "Holder ID", "Created"];
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 enum Open {
+    #[default]
     None,
     Register,
     Reject(Holder),
@@ -37,14 +38,14 @@ pub fn holders() -> Html {
         let request = Api::new(&config).query_holders(&QuerySpec::all_newest_first("createdAt"));
         client::send_json::<Vec<Holder>>(&config, &request).await
     });
-    let open = use_state(|| Open::None);
+    let open = use_reducer(Shown::<Open>::default);
     let feedback = use_state(|| None::<Feedback>);
-    let busy = use_state(|| None::<String>);
+    let busy = use_reducer(InFlight::default);
     let filter = use_state(String::new);
 
     let close = {
         let open = open.clone();
-        Callback::from(move |()| open.set(Open::None))
+        Callback::from(move |()| open.dispatch(Show::Close))
     };
 
     // Approve (immediate) and reject (after confirmation) share this.
@@ -64,7 +65,10 @@ pub fn holders() -> Html {
                 busy.clone(),
                 config.clone(),
             );
-            busy.set(Some(holder.holder_id.clone()));
+            if busy.has(&holder.holder_id) {
+                return;
+            }
+            busy.dispatch(Flight::Start(holder.holder_id.clone()));
             spawn_local(async move {
                 let api = Api::new(&config);
                 let request = if approve {
@@ -73,8 +77,11 @@ pub fn holders() -> Html {
                     api.reject_holder(&holder.holder_id)
                 };
                 let result = client::send_empty(&config, &request).await;
-                busy.set(None);
-                open.set(Open::None);
+                busy.dispatch(Flight::Done(holder.holder_id.clone()));
+                // Only the reject confirmation belongs to this action.
+                if !approve {
+                    open.dispatch(Show::CloseIf(Open::Reject(holder.clone())));
+                }
                 feedback.set(Some(match (result, approve) {
                     (Ok(()), true) => Feedback::Success(format!(
                         "Approved {}. Its pending credential requests are being issued.",
@@ -95,7 +102,7 @@ pub fn holders() -> Html {
     let onregistered = {
         let (open, feedback, reload) = (open.clone(), feedback.clone(), reload.clone());
         Callback::from(move |did: String| {
-            open.set(Open::None);
+            open.dispatch(Show::CloseIf(Open::Register));
             feedback.set(Some(Feedback::Success(format!("Registered holder {did}."))));
             reload.emit(());
         })
@@ -142,7 +149,7 @@ pub fn holders() -> Html {
                         <p class="pf-v6-u-color-200 pf-v6-u-mb-sm">
                             { "Holders that requested a credential and wait for a decision. Approving issues every waiting request; rejecting refuses them and any later ones." }
                         </p>
-                        { pending_table(&pending, &open, &decide, busy.as_deref()) }
+                        { pending_table(&pending, &open, &decide, &busy) }
                     </section>
                     <section aria-labelledby="all-title">
                         <Title level={Level::H2} size={Size::Large}>
@@ -161,7 +168,7 @@ pub fn holders() -> Html {
         }
     };
 
-    let dialog = match &*open {
+    let dialog = match &open.0 {
         Open::None => html!(),
         Open::Register => {
             html!(<RegisterDialog onclose={close.clone()} onregistered={onregistered} />)
@@ -172,7 +179,7 @@ pub fn holders() -> Html {
                 <ConfirmDialog
                     title="Reject holder"
                     confirm_label="Reject"
-                    busy={busy.is_some()}
+                    busy={busy.has(&holder.holder_id)}
                     onclose={close.clone()}
                     onconfirm={decide.reform(move |()| (target.clone(), false))}
                 >
@@ -190,7 +197,7 @@ pub fn holders() -> Html {
 
     let register = {
         let open = open.clone();
-        Callback::from(move |_| open.set(Open::Register))
+        Callback::from(move |_| open.dispatch(Show::Open(Open::Register)))
     };
     let refresh = reload.reform(|_| ());
 
@@ -203,8 +210,8 @@ pub fn holders() -> Html {
             <PageSection>
                 <FeedbackAlert feedback={(*feedback).clone()} onclose={{ let f = feedback.clone(); Callback::from(move |()| f.set(None)) }} />
                 <div class="pf-v6-l-flex pf-m-gap-sm pf-v6-u-mb-md">
-                    <Button variant={ButtonVariant::Primary} label="Register holder" onclick={register} />
-                    <Button variant={ButtonVariant::Secondary} label="Refresh" icon={Icon::SyncAlt} onclick={refresh} />
+                    <PfButton variant={ButtonVariant::Primary} label="Register holder" onclick={register} />
+                    <PfButton variant={ButtonVariant::Secondary} label="Refresh" icon={Icon::SyncAlt} onclick={refresh} />
                 </div>
                 { content }
             </PageSection>
@@ -215,9 +222,9 @@ pub fn holders() -> Html {
 
 fn pending_table(
     pending: &[&Holder],
-    open: &UseStateHandle<Open>,
+    open: &UseReducerHandle<Shown<Open>>,
     decide: &Callback<(Holder, bool)>,
-    busy: Option<&str>,
+    busy: &InFlight,
 ) -> Html {
     let rows = if pending.is_empty() {
         empty_row(
@@ -235,9 +242,9 @@ fn pending_table(
                 };
                 let reject = {
                     let (open, holder) = (open.clone(), (*holder).clone());
-                    Callback::from(move |_| open.set(Open::Reject(holder.clone())))
+                    Callback::from(move |_| open.dispatch(Show::Open(Open::Reject(holder.clone()))))
                 };
-                let disabled = busy.is_some_and(|id| id == holder.holder_id);
+                let disabled = busy.has(&holder.holder_id);
                 html! {
                     <tr class="pf-v6-c-table__tr" key={holder.holder_id.clone()}>
                         { long_cell("DID", &holder.did) }
@@ -245,8 +252,8 @@ fn pending_table(
                         { cell("Requested", timestamp(holder.created_at)) }
                         <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
                             <div class="pf-v6-l-flex pf-m-nowrap pf-m-gap-sm">
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::Primary} label="Approve" onclick={approve} {disabled} />
-                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Reject" onclick={reject} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::Primary} label="Approve" onclick={approve} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Reject" onclick={reject} {disabled} />
                             </div>
                         </td>
                     </tr>

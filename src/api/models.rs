@@ -149,11 +149,6 @@ pub enum ProcessState {
 }
 
 impl ProcessState {
-    /// SUBMITTED or APPROVED: not finished yet, worth polling.
-    pub fn is_in_flight(self) -> bool {
-        matches!(self, ProcessState::Submitted | ProcessState::Approved)
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             ProcessState::Submitted => "SUBMITTED",
@@ -430,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn issuance_process_parses_and_in_flight() {
+    fn issuance_process_parses() {
         let p: IssuanceProcess = serde_json::from_value(json!({
             "id": "u", "state": "SUBMITTED", "holderId": "h", "holderDid": "did:web:h",
             "holderPid": "pid", "credentialDefinitions": ["membership-credential"],
@@ -438,11 +433,6 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(p.state, ProcessState::Submitted);
-        assert!(ProcessState::Submitted.is_in_flight());
-        assert!(ProcessState::Approved.is_in_flight());
-        assert!(!ProcessState::Delivered.is_in_flight());
-        assert!(!ProcessState::Errored.is_in_flight());
-        assert!(!ProcessState::Rejected.is_in_flight());
         assert_eq!(ProcessState::Delivered.as_str(), "DELIVERED");
         assert_eq!(ProcessState::Unknown.as_str(), "UNKNOWN");
     }
