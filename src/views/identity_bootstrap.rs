@@ -1,4 +1,6 @@
 use patternfly_yew::prelude::PageSection;
+
+use crate::components::PageHeader;
 use yew::prelude::*;
 
 // TODO: uncomment once ds-identity-bootstrap-ui ships its components
@@ -17,10 +19,16 @@ use yew::prelude::*;
 #[function_component(IdentityBootstrap)]
 pub fn identity_bootstrap() -> Html {
     html! {
+        <>
+        <PageHeader
+            title="Identity Bootstrap"
+            description="Participant context, did:web publishing and keypair lifecycle (shared ds-identity-bootstrap-ui panel)."
+        />
         <PageSection>
             // TODO: uncomment once ds-identity-bootstrap-ui ships its components
             // <ParticipantContextPanel />
-            <p>{ "TODO" }</p>
+            <p>{ "Not available yet: the shared identity bootstrap panel ships separately." }</p>
         </PageSection>
+        </>
     }
 }

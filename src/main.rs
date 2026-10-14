@@ -2,10 +2,11 @@
 // these modules, so unused-item lints there are noise.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 
-#[allow(dead_code, unused_imports)] // until the views use it (next commits)
 mod api;
+mod components;
 mod config;
 mod format;
+mod hooks;
 mod routes;
 mod store;
 mod validation;
@@ -24,7 +25,7 @@ fn main() {
 }
 
 /// The app shell: loads `configuration.json` once at startup, then renders
-/// the masthead/nav/routed-content chrome that the 5 route views plug into.
+/// the masthead/nav/routed-content chrome that the 6 route views plug into.
 ///
 /// Gated to wasm32 because it talks to `web_sys::window()` and drives a
 /// browser `fetch` via `reqwest`, same as `ds-catalog-browser-ui`'s own
@@ -42,10 +43,13 @@ mod app {
     use yew_router::prelude::{HashRouter, Link, Switch as RouteSwitch};
     use yewdux::prelude::*;
 
+    use crate::components::ErrorAlert;
     use crate::config::fetch_config;
     use crate::routes::Route;
     use crate::store::AppState;
-    use crate::views::{CredentialDefinitions, Credentials, Dashboard, Holders, IdentityBootstrap};
+    use crate::views::{
+        CredentialDefinitions, Credentials, Dashboard, Holders, IdentityBootstrap, TrustedIssuers,
+    };
 
     /// Where the page currently is in the load-configuration pipeline.
     #[derive(Clone, PartialEq)]
@@ -95,13 +99,7 @@ mod app {
             ),
             LoadState::ConfigError(message) => html!(
                 <Bullseye>
-                    <Alert
-                        r#type={AlertType::Danger}
-                        title="Could not load configuration.json"
-                        inline=true
-                    >
-                        <p>{ message.clone() }</p>
-                    </Alert>
+                    <ErrorAlert title="Could not load configuration.json" message={message.clone()} />
                 </Bullseye>
             ),
             LoadState::Ready => html!(<Shell />),
@@ -135,6 +133,7 @@ mod app {
                         { nav_link(Route::CredentialDefinitions, "Credential Definitions") }
                         { nav_link(Route::Holders, "Holders") }
                         { nav_link(Route::Credentials, "Credentials") }
+                        { nav_link(Route::TrustedIssuers, "Trusted Issuers") }
                         { nav_link(Route::IdentityBootstrap, "Identity Bootstrap") }
                     </NavList>
                 </Nav>
@@ -170,6 +169,7 @@ mod app {
             Route::CredentialDefinitions => html!(<CredentialDefinitions />),
             Route::Holders => html!(<Holders />),
             Route::Credentials => html!(<Credentials />),
+            Route::TrustedIssuers => html!(<TrustedIssuers />),
             Route::IdentityBootstrap => html!(<IdentityBootstrap />),
         }
     }
