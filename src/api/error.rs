@@ -16,25 +16,74 @@ impl ApiError {
     /// Builds the error for a non-success `status` with response `body`,
     /// preferring the server's `{"error": "..."}` message.
     pub fn from_response(status: u16, body: &str) -> Self {
-        let _ = (status, body);
-        todo!()
+        let detail = server_message(body).or_else(|| plain_text(body));
+        let message = match (status, detail) {
+            (400, d) => format!("Invalid request: {}", or_reason(d, status)),
+            (401, d) => format!(
+                "Not authorized: {}. Check the gateway's admin token.",
+                or_reason(d, status)
+            ),
+            (403, d) => format!("Forbidden: {}", or_reason(d, status)),
+            (404, d) => format!("Not found: {}", or_reason(d, status)),
+            (409, d) => format!("Conflict: {}", or_reason(d, status)),
+            (422, d) => format!("Rejected: {}", or_reason(d, status)),
+            (500..=599, d) => format!("Server error ({status}): {}", or_reason(d, status)),
+            (_, Some(d)) => format!("Unexpected response ({status}): {d}"),
+            (_, None) => format!("Unexpected response ({status})"),
+        };
+        ApiError::Http { status, message }
     }
 
     pub fn status(&self) -> Option<u16> {
-        todo!()
+        match self {
+            ApiError::Http { status, .. } => Some(*status),
+            _ => None,
+        }
     }
 }
 
 /// Extracts `error` from a `{"error": "..."}` body, if that's what it is.
 pub fn server_message(body: &str) -> Option<String> {
-    let _ = body;
-    todo!()
+    let value: serde_json::Value = serde_json::from_str(body).ok()?;
+    let message = value.get("error")?.as_str()?.trim();
+    (!message.is_empty()).then(|| message.to_string())
+}
+
+/// A short, non-HTML plain-text body is worth showing as-is (proxies often
+/// answer like that); anything else is noise.
+fn plain_text(body: &str) -> Option<String> {
+    let body = body.trim();
+    (!body.is_empty() && body.len() <= 200 && !body.starts_with('<') && !body.starts_with('{'))
+        .then(|| body.to_string())
+}
+
+fn or_reason(detail: Option<String>, status: u16) -> String {
+    detail.unwrap_or_else(|| reason_phrase(status).to_string())
+}
+
+fn reason_phrase(status: u16) -> &'static str {
+    match status {
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        409 => "Conflict",
+        422 => "Unprocessable Entity",
+        500 => "Internal Server Error",
+        502 => "Bad Gateway",
+        503 => "Service Unavailable",
+        504 => "Gateway Timeout",
+        _ => "Error",
+    }
 }
 
 impl fmt::Display for ApiError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        match self {
+            ApiError::Http { message, .. } => f.write_str(message),
+            ApiError::Network(e) => write!(f, "Could not reach the server: {e}"),
+            ApiError::Decode(e) => write!(f, "Unexpected response from the server: {e}"),
+        }
     }
 }
 

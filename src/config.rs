@@ -38,11 +38,11 @@ pub const DEFAULT_REGISTRY_API_PATH: &str = "/api/registry";
 pub const DEFAULT_PARTICIPANT_CONTEXT_ID: &str = "issuer";
 
 fn default_registry_api_path() -> String {
-    todo!()
+    DEFAULT_REGISTRY_API_PATH.to_string()
 }
 
 fn default_participant_context_id() -> String {
-    todo!()
+    DEFAULT_PARTICIPANT_CONTEXT_ID.to_string()
 }
 
 impl Default for Config {

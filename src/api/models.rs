@@ -85,13 +85,29 @@ pub enum HolderStatus {
 }
 
 impl HolderStatus {
+    pub const ALL: [HolderStatus; 3] = [
+        HolderStatus::Pending,
+        HolderStatus::Approved,
+        HolderStatus::Rejected,
+    ];
+
     /// Wire value, also used as the QuerySpec filter value.
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            HolderStatus::Pending => "pending",
+            HolderStatus::Approved => "approved",
+            HolderStatus::Rejected => "rejected",
+            HolderStatus::Unknown => "unknown",
+        }
     }
 
     pub fn label(self) -> &'static str {
-        todo!()
+        match self {
+            HolderStatus::Pending => "Pending",
+            HolderStatus::Approved => "Approved",
+            HolderStatus::Rejected => "Rejected",
+            HolderStatus::Unknown => "Unknown",
+        }
     }
 }
 
@@ -135,11 +151,18 @@ pub enum ProcessState {
 impl ProcessState {
     /// SUBMITTED or APPROVED: not finished yet, worth polling.
     pub fn is_in_flight(self) -> bool {
-        todo!()
+        matches!(self, ProcessState::Submitted | ProcessState::Approved)
     }
 
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            ProcessState::Submitted => "SUBMITTED",
+            ProcessState::Approved => "APPROVED",
+            ProcessState::Delivered => "DELIVERED",
+            ProcessState::Errored => "ERRORED",
+            ProcessState::Rejected => "REJECTED",
+            ProcessState::Unknown => "UNKNOWN",
+        }
     }
 }
 
@@ -175,7 +198,11 @@ pub enum CredentialStatus {
 
 impl CredentialStatus {
     pub fn label(self) -> &'static str {
-        todo!()
+        match self {
+            CredentialStatus::Active => "Active",
+            CredentialStatus::Revoked => "Revoked",
+            CredentialStatus::Unknown => "Unknown",
+        }
     }
 }
 
@@ -218,21 +245,28 @@ impl Role {
     pub const ALL: [Role; 3] = [Role::RootTao, Role::Tao, Role::Ti];
 
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            Role::RootTao => "root_tao",
+            Role::Tao => "tao",
+            Role::Ti => "ti",
+        }
     }
 
     pub fn label(self) -> &'static str {
-        todo!()
+        match self {
+            Role::RootTao => "Root TAO",
+            Role::Tao => "TAO",
+            Role::Ti => "Trusted Issuer",
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        let _ = value;
-        todo!()
+        Self::ALL.into_iter().find(|r| r.as_str() == value)
     }
 
     /// Root TAOs and TAOs may accredit others.
     pub fn can_accredit(self) -> bool {
-        todo!()
+        matches!(self, Role::RootTao | Role::Tao)
     }
 }
 
@@ -252,16 +286,23 @@ impl RegistryStatus {
     ];
 
     pub fn as_str(self) -> &'static str {
-        todo!()
+        match self {
+            RegistryStatus::Active => "active",
+            RegistryStatus::Suspended => "suspended",
+            RegistryStatus::Revoked => "revoked",
+        }
     }
 
     pub fn label(self) -> &'static str {
-        todo!()
+        match self {
+            RegistryStatus::Active => "Active",
+            RegistryStatus::Suspended => "Suspended",
+            RegistryStatus::Revoked => "Revoked",
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        let _ = value;
-        todo!()
+        Self::ALL.into_iter().find(|s| s.as_str() == value)
     }
 }
 

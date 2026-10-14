@@ -5,8 +5,22 @@
 /// alphabets, padded or not; we send url-safe without padding so the
 /// segment never contains `/`, `+` or `=`.
 pub fn base64_url(input: &str) -> String {
-    let _ = input;
-    todo!()
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b = [
+            chunk[0],
+            chunk.get(1).copied().unwrap_or(0),
+            chunk.get(2).copied().unwrap_or(0),
+        ];
+        let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+        let symbols = chunk.len() + 1;
+        for i in 0..symbols {
+            out.push(ALPHABET[((n >> (18 - 6 * i)) & 0x3f) as usize] as char);
+        }
+    }
+    out
 }
 
 /// Percent-encodes `input` as one path segment or query value, exactly like
@@ -14,8 +28,15 @@ pub fn base64_url(input: &str) -> String {
 /// `A-Z a-z 0-9 - _ . ! ~ * ' ( )` is UTF-8 percent-encoded. A DID such as
 /// `did:web:h%3A1` therefore travels as `did%3Aweb%3Ah%253A1`.
 pub fn encode_component(input: &str) -> String {
-    let _ = input;
-    todo!()
+    let mut out = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&byte) {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 #[cfg(test)]

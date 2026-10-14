@@ -55,107 +55,173 @@ impl<'a> Api<'a> {
 
     /// `{issuer_admin_api_path}/v1alpha/participants/{pc}`.
     pub fn participant_base(&self) -> String {
-        todo!()
+        format!(
+            "{}/v1alpha/participants/{}",
+            trim_base(&self.config.issuer_admin_api_path),
+            base64_url(&self.config.participant_context_id)
+        )
+    }
+
+    fn hub(&self, method: Method, path: &str, body: Option<Value>) -> ApiRequest {
+        ApiRequest {
+            method,
+            url: format!("{}{path}", self.participant_base()),
+            body,
+        }
     }
 
     pub fn participant(&self) -> ApiRequest {
-        todo!()
+        self.hub(Method::Get, "", None)
     }
 
     pub fn query_credential_definitions(&self, query: &QuerySpec) -> ApiRequest {
-        let _ = query;
-        todo!()
+        self.hub(
+            Method::Post,
+            "/credentialdefinitions/query",
+            json_body(query),
+        )
     }
 
     pub fn create_credential_definition(&self, definition: &CredentialDefinition) -> ApiRequest {
-        let _ = definition;
-        todo!()
+        self.hub(
+            Method::Post,
+            "/credentialdefinitions",
+            json_body(definition),
+        )
     }
 
     pub fn update_credential_definition(&self, definition: &CredentialDefinition) -> ApiRequest {
-        let _ = definition;
-        todo!()
+        self.hub(Method::Put, "/credentialdefinitions", json_body(definition))
     }
 
     pub fn delete_credential_definition(&self, id: &str) -> ApiRequest {
-        let _ = id;
-        todo!()
+        self.hub(
+            Method::Delete,
+            &format!("/credentialdefinitions/{}", encode_component(id)),
+            None,
+        )
     }
 
     pub fn query_holders(&self, query: &QuerySpec) -> ApiRequest {
-        let _ = query;
-        todo!()
+        self.hub(Method::Post, "/holders/query", json_body(query))
     }
 
     pub fn register_holder(&self, holder: &NewHolder) -> ApiRequest {
-        let _ = holder;
-        todo!()
+        self.hub(Method::Post, "/holders", json_body(holder))
     }
 
     pub fn approve_holder(&self, holder_id: &str) -> ApiRequest {
-        let _ = holder_id;
-        todo!()
+        self.hub(
+            Method::Post,
+            &format!("/holders/{}/approve", encode_component(holder_id)),
+            None,
+        )
     }
 
     pub fn reject_holder(&self, holder_id: &str) -> ApiRequest {
-        let _ = holder_id;
-        todo!()
+        self.hub(
+            Method::Post,
+            &format!("/holders/{}/reject", encode_component(holder_id)),
+            None,
+        )
     }
 
     pub fn query_issuance_processes(&self, query: &QuerySpec) -> ApiRequest {
-        let _ = query;
-        todo!()
+        self.hub(Method::Post, "/issuanceprocesses/query", json_body(query))
     }
 
     pub fn query_credentials(&self, query: &QuerySpec) -> ApiRequest {
-        let _ = query;
-        todo!()
+        self.hub(Method::Post, "/credentials/query", json_body(query))
     }
 
     pub fn revoke_credential(&self, id: &str) -> ApiRequest {
-        let _ = id;
-        todo!()
+        self.hub(
+            Method::Post,
+            &format!("/credentials/{}/revoke", encode_component(id)),
+            None,
+        )
     }
 
     // ------------------------------------------------------- registry ---
 
+    fn registry(&self, method: Method, path: &str, body: Option<Value>) -> ApiRequest {
+        ApiRequest {
+            method,
+            url: format!("{}/v1{path}", trim_base(&self.config.registry_api_path)),
+            body,
+        }
+    }
+
+    fn issuer_path(did: &str) -> String {
+        format!("/issuers/{}", encode_component(did))
+    }
+
     pub fn list_issuers(&self, filter: &IssuerFilter) -> ApiRequest {
-        let _ = filter;
-        todo!()
+        let params: Vec<String> = [
+            filter.role.map(|r| format!("role={}", r.as_str())),
+            filter.status.map(|s| format!("status={}", s.as_str())),
+            filter
+                .credential_type
+                .as_deref()
+                .map(|t| format!("credentialType={}", encode_component(t))),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let path = if params.is_empty() {
+            "/issuers".to_string()
+        } else {
+            format!("/issuers?{}", params.join("&"))
+        };
+        self.registry(Method::Get, &path, None)
     }
 
     pub fn get_issuer(&self, did: &str) -> ApiRequest {
-        let _ = did;
-        todo!()
+        self.registry(Method::Get, &Self::issuer_path(did), None)
     }
 
     pub fn put_issuer(&self, record: &IssuerRecord) -> ApiRequest {
-        let _ = record;
-        todo!()
+        self.registry(
+            Method::Put,
+            &Self::issuer_path(&record.did),
+            json_body(record),
+        )
     }
 
     pub fn set_issuer_status(&self, did: &str, status: RegistryStatus) -> ApiRequest {
-        let _ = (did, status);
-        todo!()
+        self.registry(
+            Method::Patch,
+            &format!("{}/status", Self::issuer_path(did)),
+            Some(serde_json::json!({ "status": status })),
+        )
     }
 
     pub fn delete_issuer(&self, did: &str) -> ApiRequest {
-        let _ = did;
-        todo!()
+        self.registry(Method::Delete, &Self::issuer_path(did), None)
     }
 
     pub fn check_trust(&self, did: &str, credential_type: &str) -> ApiRequest {
-        let _ = (did, credential_type);
-        todo!()
+        self.registry(
+            Method::Get,
+            &format!(
+                "{}/types/{}",
+                Self::issuer_path(did),
+                encode_component(credential_type)
+            ),
+            None,
+        )
     }
 
     /// `GET /v1/admin`: 204 when the console may write to the registry.
     pub fn registry_admin_probe(&self) -> ApiRequest {
-        todo!()
+        self.registry(Method::Get, "/admin", None)
     }
 }
 
-#[allow(dead_code)]
+fn trim_base(path: &str) -> &str {
+    path.trim_end_matches('/')
+}
+
 fn json_body(value: &impl Serialize) -> Option<Value> {
     Some(serde_json::to_value(value).expect("API models always serialize"))
 }

@@ -2,6 +2,7 @@
 // these modules, so unused-item lints there are noise.
 #![cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
 
+#[allow(dead_code, unused_imports)] // until the views use it (next commits)
 mod api;
 mod config;
 mod routes;

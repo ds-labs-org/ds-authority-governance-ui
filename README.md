@@ -55,6 +55,8 @@ Fetched at runtime from the app's own origin, same pattern as
 {
   "identity_api_path": "/api/identity",
   "issuer_admin_api_path": "/api/issuer",
+  "registry_api_path": "/api/registry",
+  "participant_context_id": "issuer",
   "bearer_token": null
 }
 ```
@@ -65,6 +67,13 @@ Fetched at runtime from the app's own origin, same pattern as
   forward each path to the real identity-api / issuer-admin-api. That's a
   deliberate choice to avoid any CORS dependency, handled by a separate
   integration/deployment stage, not by this app.
+- `registry_api_path` (optional, default `/api/registry`) is the same-origin
+  path the gateway forwards to the trusted issuers registry
+  (`ds-trusted-issuers-registry-rs`), used by the Trusted Issuers view and
+  the Dashboard's trust status.
+- `participant_context_id` (optional, default `issuer`) is the hub's
+  participant context id. It is sent base64-encoded in every Issuer Admin
+  API path (`/v1alpha/participants/{base64(id)}/...`), as EDC does.
 - `bearer_token` is optional (string or `null`/absent). This app is served
   behind an OIDC gate (apisix + Zitadel) that sets a same-origin session
   cookie, which the browser sends automatically on every same-origin API

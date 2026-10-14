@@ -48,30 +48,36 @@ impl QuerySpec {
     /// Everything the hub will return in one page (`limit` = 500), newest
     /// first by `sort_field`.
     pub fn all_newest_first(sort_field: &str) -> Self {
-        let _ = sort_field;
-        todo!()
+        Self::new()
+            .limit(MAX_LIMIT)
+            .sort(sort_field, SortOrder::Desc)
     }
 
-    pub fn offset(self, offset: u32) -> Self {
-        let _ = offset;
-        todo!()
+    pub fn offset(mut self, offset: u32) -> Self {
+        self.offset = Some(offset);
+        self
     }
 
     /// Sets `limit`, clamped to [`MAX_LIMIT`].
-    pub fn limit(self, limit: u32) -> Self {
-        let _ = limit;
-        todo!()
+    pub fn limit(mut self, limit: u32) -> Self {
+        self.limit = Some(limit.min(MAX_LIMIT));
+        self
     }
 
     /// Adds `field = value`.
-    pub fn filter(self, field: &str, value: impl Into<Value>) -> Self {
-        let _ = (field, value.into());
-        todo!()
+    pub fn filter(mut self, field: &str, value: impl Into<Value>) -> Self {
+        self.filter_expression.push(Criterion {
+            operand_left: field.to_string(),
+            operator: "=".to_string(),
+            operand_right: value.into(),
+        });
+        self
     }
 
-    pub fn sort(self, field: &str, order: SortOrder) -> Self {
-        let _ = (field, order);
-        todo!()
+    pub fn sort(mut self, field: &str, order: SortOrder) -> Self {
+        self.sort_field = Some(field.to_string());
+        self.sort_order = Some(order);
+        self
     }
 }
 
