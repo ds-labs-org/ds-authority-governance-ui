@@ -5,8 +5,10 @@
 #[allow(dead_code, unused_imports)] // until the views use it (next commits)
 mod api;
 mod config;
+mod format;
 mod routes;
 mod store;
+mod validation;
 mod views;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -256,7 +256,7 @@ impl Role {
         match self {
             Role::RootTao => "Root TAO",
             Role::Tao => "TAO",
-            Role::Ti => "Trusted Issuer",
+            Role::Ti => "Trusted issuer",
         }
     }
 
@@ -488,7 +488,7 @@ mod tests {
         assert_eq!(Role::Ti.as_str(), "ti");
         assert_eq!(Role::RootTao.label(), "Root TAO");
         assert_eq!(Role::Tao.label(), "TAO");
-        assert_eq!(Role::Ti.label(), "Trusted Issuer");
+        assert_eq!(Role::Ti.label(), "Trusted issuer");
         assert_eq!(Role::parse("tao"), Some(Role::Tao));
         assert_eq!(Role::parse("x"), None);
         assert!(Role::RootTao.can_accredit());
