@@ -239,14 +239,14 @@ fn pending_table(
                 };
                 let disabled = busy.is_some_and(|id| id == holder.holder_id);
                 html! {
-                    <tr key={holder.holder_id.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={holder.holder_id.clone()}>
                         { long_cell("DID", &holder.did) }
                         { cell("Name", holder.name.clone().unwrap_or_else(|| "-".into())) }
                         { cell("Requested", timestamp(holder.created_at)) }
-                        <td class="pf-v6-c-table__action" data-label="Actions">
+                        <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
                             <div class="pf-v6-l-flex pf-m-nowrap pf-m-gap-sm">
-                                <Button variant={ButtonVariant::Primary} label="Approve" onclick={approve} {disabled} />
-                                <Button variant={ButtonVariant::DangerSecondary} label="Reject" onclick={reject} {disabled} />
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::Primary} label="Approve" onclick={approve} {disabled} />
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Reject" onclick={reject} {disabled} />
                             </div>
                         </td>
                     </tr>
@@ -257,7 +257,7 @@ fn pending_table(
     html! {
         <table class="pf-v6-c-table pf-m-grid-md" aria-label="Pending approval">
             { header_row(&PENDING_COLUMNS) }
-            <tbody>{ rows }</tbody>
+            <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
     }
 }
@@ -278,7 +278,7 @@ fn all_table(holders: &[&Holder], none_at_all: bool) -> Html {
             .iter()
             .map(|holder| {
                 html! {
-                    <tr key={holder.holder_id.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={holder.holder_id.clone()}>
                         { long_cell("DID", &holder.did) }
                         { cell("Name", holder.name.clone().unwrap_or_else(|| "-".into())) }
                         { cell("Status", holder_status_label(holder.status)) }
@@ -292,7 +292,7 @@ fn all_table(holders: &[&Holder], none_at_all: bool) -> Html {
     html! {
         <table class="pf-v6-c-table pf-m-grid-md" aria-label="All holders">
             { header_row(&ALL_COLUMNS) }
-            <tbody>{ rows }</tbody>
+            <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
     }
 }

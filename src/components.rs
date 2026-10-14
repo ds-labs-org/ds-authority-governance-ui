@@ -230,7 +230,7 @@ pub struct DialogProps {
 }
 
 /// Modal dialog: `role="dialog"`, `aria-modal`, named by its `h2` title.
-/// Escape and the close button call `onclose`.
+/// Escape and the close button call `onclose`. Rendered into `<body>`.
 #[function_component(Dialog)]
 pub fn dialog(props: &DialogProps) -> Html {
     let title_id = use_memo((), |_| format!("dialog-title-{}", next_id()));
@@ -242,7 +242,7 @@ pub fn dialog(props: &DialogProps) -> Html {
             }
         })
     };
-    html! {
+    let dialog = html! {
         <div class="pf-v6-c-backdrop">
             <div class="pf-v6-l-bullseye">
                 <div
@@ -275,6 +275,15 @@ pub fn dialog(props: &DialogProps) -> Html {
                 </div>
             </div>
         </div>
+    };
+    // Rendered into <body>: inside the page's main section the backdrop
+    // would sit under the sidebar's stacking context.
+    match web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.body())
+    {
+        Some(body) => create_portal(dialog, body.into()),
+        None => dialog,
     }
 }
 
@@ -443,34 +452,39 @@ pub fn select_control(
 /// the DOM and in `title`, CSS truncates it visually.
 pub fn long_cell(label: &'static str, value: &str) -> Html {
     html! {
-        <td class="pf-m-truncate" data-label={label} title={value.to_string()}>{ value.to_string() }</td>
+        <td
+            class="pf-v6-c-table__td pf-m-truncate"
+            style="--pf-v6-c-table--cell--MinWidth: 10rem;"
+            data-label={label}
+            title={value.to_string()}
+        >{ value.to_string() }</td>
     }
 }
 
 pub fn cell(label: &'static str, content: impl Into<Html>) -> Html {
-    html! { <td data-label={label}>{ content.into() }</td> }
+    html! { <td class="pf-v6-c-table__td" data-label={label}>{ content.into() }</td> }
 }
 
 /// One full-width row holding an empty state.
 pub fn empty_row(columns: usize, title: &'static str, body: Html) -> Html {
     html! {
-        <tr>
-            <td colspan={columns.to_string()}>
+        <tr class="pf-v6-c-table__tr">
+            <td class="pf-v6-c-table__td" colspan={columns.to_string()}>
                 <Empty title={title}>{ body }</Empty>
             </td>
         </tr>
     }
 }
 
-/// Column headers as `<th scope="col">`.
+/// Column headers as `<th class="pf-v6-c-table__th pf-m-wrap" scope="col">`.
 pub fn header_row(columns: &[&'static str]) -> Html {
     html! {
-        <thead>
-            <tr>
+        <thead class="pf-v6-c-table__thead">
+            <tr class="pf-v6-c-table__tr">
                 { for columns.iter().map(|c| if c.is_empty() {
-                    html! { <th scope="col"><span class="pf-v6-screen-reader">{ "Actions" }</span></th> }
+                    html! { <th class="pf-v6-c-table__th pf-m-wrap" scope="col"><span class="pf-v6-screen-reader">{ "Actions" }</span></th> }
                 } else {
-                    html! { <th scope="col">{ *c }</th> }
+                    html! { <th class="pf-v6-c-table__th pf-m-wrap" scope="col">{ *c }</th> }
                 }) }
             </tr>
         </thead>

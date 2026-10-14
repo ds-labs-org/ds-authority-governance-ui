@@ -191,15 +191,15 @@ fn issued_table(
                 };
                 let revoked = credential.status == CredentialStatus::Revoked;
                 html! {
-                    <tr key={credential.id.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={credential.id.clone()}>
                         { long_cell("ID", &credential.id) }
                         { cell("Type", credential.credential_type.clone()) }
                         { long_cell("Holder", &credential.holder_did) }
                         { cell("Issued", timestamp(credential.issued_at)) }
                         { cell("Expires", timestamp_or(credential.expires_at, "Never")) }
                         { cell("Status", credential_status_label(credential.status)) }
-                        <td class="pf-v6-c-table__action" data-label="Actions">
-                            <Button variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={revoke} disabled={revoked} />
+                        <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
+                            <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={revoke} disabled={revoked} />
                         </td>
                     </tr>
                 }
@@ -209,7 +209,7 @@ fn issued_table(
     html! {
         <table class="pf-v6-c-table pf-m-grid-md" aria-label="Issued credentials">
             { header_row(&ISSUED_COLUMNS) }
-            <tbody>{ rows }</tbody>
+            <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
     }
 }
@@ -225,11 +225,11 @@ fn process_table(list: &[IssuanceProcess]) -> Html {
         list.iter()
             .map(|process| {
                 html! {
-                    <tr key={process.id.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={process.id.clone()}>
                         { long_cell("ID", &process.id) }
                         { long_cell("Holder", &process.holder_did) }
                         { cell("Credential definitions", process.credential_definitions.join(", ")) }
-                        <td data-label="State">
+                        <td class="pf-v6-c-table__td" data-label="State">
                             { process_state_label(process.state) }
                             if let Some(detail) = &process.error_detail {
                                 <div class="pf-v6-u-font-size-sm pf-v6-u-color-200">{ detail.clone() }</div>
@@ -244,7 +244,7 @@ fn process_table(list: &[IssuanceProcess]) -> Html {
     html! {
         <table class="pf-v6-c-table pf-m-grid-md" aria-label="Issuance processes">
             { header_row(&PROCESS_COLUMNS) }
-            <tbody>{ rows }</tbody>
+            <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
     }
 }

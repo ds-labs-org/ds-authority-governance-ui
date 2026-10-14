@@ -349,7 +349,7 @@ fn issuers_table(
                 };
                 let disabled = !writable || busy;
                 html! {
-                    <tr key={record.did.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={record.did.clone()}>
                         { long_cell("DID", &record.did) }
                         { cell("Name", record.name.clone().unwrap_or_else(|| "-".into())) }
                         { cell("Role", record.role.label()) }
@@ -360,18 +360,18 @@ fn issuers_table(
                         } }
                         { cell("Status", registry_status_label(record.status)) }
                         { cell("Valid until", record.valid_until.map_or_else(|| "No expiry".to_string(), |t| timestamp_or(Some(t), ""))) }
-                        <td class="pf-v6-c-table__action" data-label="Actions">
-                            <div class="pf-v6-l-flex pf-m-nowrap pf-m-gap-sm">
-                                <Button variant={ButtonVariant::Secondary} label="Edit" onclick={opener(Open::Edit)} {disabled} />
+                        <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
+                            <div class="pf-v6-l-flex pf-m-gap-xs" style="min-width: 13rem;">
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={opener(Open::Edit)} {disabled} />
                                 if record.status == RegistryStatus::Active {
-                                    <Button variant={ButtonVariant::Secondary} label="Suspend" onclick={status_to(RegistryStatus::Suspended)} {disabled} />
+                                    <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Suspend" onclick={status_to(RegistryStatus::Suspended)} {disabled} />
                                 } else {
-                                    <Button variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
+                                    <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
                                 }
                                 if record.status != RegistryStatus::Revoked {
-                                    <Button variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(Open::Revoke)} {disabled} />
+                                    <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(Open::Revoke)} {disabled} />
                                 }
-                                <Button variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(Open::Delete)} {disabled} />
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(Open::Delete)} {disabled} />
                             </div>
                         </td>
                     </tr>
@@ -381,9 +381,9 @@ fn issuers_table(
     };
     html! {
         <div class="pf-v6-u-overflow-x-auto">
-            <table class="pf-v6-c-table pf-m-grid-lg" aria-label={TABLE}>
+            <table class="pf-v6-c-table pf-m-grid-lg pf-m-compact" aria-label={TABLE}>
                 { header_row(&COLUMNS) }
-                <tbody>{ rows }</tbody>
+                <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
             </table>
         </div>
     }

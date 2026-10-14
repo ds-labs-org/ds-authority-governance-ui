@@ -161,19 +161,19 @@ fn definitions_table(list: &[CredentialDefinition], open: &UseStateHandle<Open>)
                     Callback::from(move |_| open.set(Open::Delete(id.clone())))
                 };
                 html! {
-                    <tr key={def.id.clone()}>
+                    <tr class="pf-v6-c-table__tr" key={def.id.clone()}>
                         { long_cell("ID", &def.id) }
                         { cell("Credential type", def.credential_type.clone()) }
                         { cell("Format", def.format.clone()) }
-                        <td data-label="Validity (seconds)" title={duration(def.validity)}>
+                        <td class="pf-v6-c-table__td" data-label="Validity (seconds)" title={duration(def.validity)}>
                             { def.validity }
                             <span class="pf-v6-u-color-200">{ format!(" ({})", duration(def.validity)) }</span>
                         </td>
                         { cell("Created", timestamp_or(def.created_at, "-")) }
-                        <td class="pf-v6-c-table__action" data-label="Actions">
+                        <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
                             <div class="pf-v6-l-flex pf-m-nowrap pf-m-gap-sm">
-                                <Button variant={ButtonVariant::Secondary} label="Edit" onclick={edit} />
-                                <Button variant={ButtonVariant::DangerSecondary} label="Delete" onclick={delete} />
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={edit} />
+                                <Button size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={delete} />
                             </div>
                         </td>
                     </tr>
@@ -184,7 +184,7 @@ fn definitions_table(list: &[CredentialDefinition], open: &UseStateHandle<Open>)
     html! {
         <table class="pf-v6-c-table pf-m-grid-md" aria-label={TABLE}>
             { header_row(&COLUMNS) }
-            <tbody>{ rows }</tbody>
+            <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
         </table>
     }
 }
