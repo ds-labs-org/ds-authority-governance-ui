@@ -1,0 +1,68 @@
+name: e2e
+
+# Manual only until the registry has a repository CI can check out (see TODO).
+on:
+  workflow_dispatch:
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ds-authority-governance-ui
+      - uses: actions/checkout@v4
+        with:
+          repository: ds-labs-org/ds-identity-hub-rs
+          path: ds-identity-hub-rs
+      # TODO: ds-trusted-issuers-registry-rs has no repository yet (it ships as
+      # a git bundle). Once it does, check it out here next to the others:
+      # - uses: actions/checkout@v4
+      #   with:
+      #     repository: ds-labs-org/ds-trusted-issuers-registry-rs
+      #     path: ds-trusted-issuers-registry-rs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ds-authority-governance-ui
+            ds-identity-hub-rs
+      - name: Build hub
+        run: cargo build --bin identity-hub
+        working-directory: ds-identity-hub-rs
+      - name: Build registry
+        # TODO: enable together with the registry checkout above. Until then
+        # the stack stops at startup with "REGISTRY_BIN ... not found".
+        if: ${{ false }}
+        run: cargo build -p trusted-issuers-http --bin trusted-issuers-registry
+        working-directory: ds-trusted-issuers-registry-rs
+      - name: Build console
+        run: |
+          cargo install trunk --version 0.22.0-beta.2 --locked
+          trunk build
+        working-directory: ds-authority-governance-ui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ds-authority-governance-ui/e2e/package-lock.json
+      - name: Run Playwright
+        working-directory: ds-authority-governance-ui/e2e
+        env:
+          HUB_BIN: ${{ github.workspace }}/ds-identity-hub-rs/target/debug/identity-hub
+          REGISTRY_BIN: ${{ github.workspace }}/ds-trusted-issuers-registry-rs/target/debug/trusted-issuers-registry
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            ds-authority-governance-ui/e2e/playwright-report
+            ds-authority-governance-ui/e2e/test-results
+            ds-authority-governance-ui/e2e/.stack/*.log

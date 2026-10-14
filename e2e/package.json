@@ -1,0 +1,18 @@
+{
+  "name": "ds-authority-governance-ui-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests for ds-authority-governance-ui: real hub + registry + fake DCP holder, driven through Chromium.",
+  "scripts": {
+    "test": "playwright test",
+    "test:list": "playwright test --list",
+    "stack": "node harness/stack.mjs",
+    "report": "playwright show-report"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
