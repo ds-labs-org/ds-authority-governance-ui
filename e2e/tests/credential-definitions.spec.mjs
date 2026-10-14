@@ -3,6 +3,14 @@ import {
 } from './fixtures.mjs';
 
 const TABLE = 'Credential definitions';
+/** The cell of `rowLocator` under the column whose header starts with `name`. */
+async function cellUnder(tbl, rowLocator, name) {
+  const headers = await tbl.getByRole('columnheader').allTextContents();
+  const index = headers.findIndex((h) => h.trim().startsWith(name));
+  expect(index, `column "${name}"`).toBeGreaterThanOrEqual(0);
+  return rowLocator.getByRole('cell').nth(index);
+}
+
 const typeName = () => `E2e${uid('').replace(/[^a-z0-9]/gi, '')}Credential`;
 
 test.describe('credential definitions', () => {
@@ -34,7 +42,7 @@ test.describe('credential definitions', () => {
 
     const created = row(table(page, TABLE), id);
     await expect(created).toContainText(type);
-    await expect(created).toContainText('7200');
+    await expect(await cellUnder(table(page, TABLE), created, 'Validity')).toHaveText('7200');
 
     const stored = await hub.getDefinition(id);
     expect(stored.status).toBe(200);
@@ -57,7 +65,8 @@ test.describe('credential definitions', () => {
     await dlg.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(dlg).toBeHidden();
 
-    await expect(row(table(page, TABLE), id)).toContainText('600');
+    // Exact cell text: toContainText('600') would also match the old '3600'.
+    await expect(await cellUnder(table(page, TABLE), row(table(page, TABLE), id), 'Validity')).toHaveText('600');
     expect((await hub.getDefinition(id)).json.validity).toBe(600);
   });
 

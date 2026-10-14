@@ -73,6 +73,9 @@ test.describe('trusted issuers', () => {
     await expect(row(table(page, TABLE), root).getByRole('button', { name: 'Activate', exact: true })).toBeVisible();
     expect((await tir.get(root)).json.status).toBe('suspended');
     result = await checkTrust(page, ti, 'MembershipCredential');
+    // The previous answer (OtherCredential) was also "Not trusted": wait for
+    // the new one, whose reason names the suspended root.
+    await expect(result).toContainText(`'${root}' is not active`);
     await expect(result).toContainText('Not trusted');
 
     // Deleting a record that still accredits someone: 409 -> error alert, nothing removed.
@@ -88,6 +91,8 @@ test.describe('trusted issuers', () => {
     await row(table(page, TABLE), root).getByRole('button', { name: 'Activate', exact: true }).click();
     await expect(row(table(page, TABLE), root)).toContainText(/active/i);
     result = await checkTrust(page, ti, 'MembershipCredential');
+    // A positive wait first: a negative assertion alone also passes while checking.
+    await expect(result).toContainText('Trusted');
     await expect(result).not.toContainText('Not trusted');
 
     // Cleanup through the backend (keeps the shared registry small).

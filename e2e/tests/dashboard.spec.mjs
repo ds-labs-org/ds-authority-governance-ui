@@ -1,6 +1,7 @@
 import { test, expect, uid, gotoRoute, pageHeading, expectLoaded } from './fixtures.mjs';
 
-const count = (n) => new RegExp(`(^|\\D)${n}(\\D|$)`);
+/** The card's main number (not any digit in the card, e.g. "0 active"). */
+const countIn = (page, region) => page.getByRole('region', { name: region }).getByTestId('count');
 
 test.describe('dashboard', () => {
   test('shows live counts and links to the pending approvals', async ({ page, holders, hub, stack }) => {
@@ -18,9 +19,9 @@ test.describe('dashboard', () => {
     await gotoRoute(page, '/');
     await expect(pageHeading(page, 'Dashboard')).toBeVisible();
     await expectLoaded(page);
-    await expect(page.getByRole('region', { name: 'Credential definitions' })).toContainText(count(defs.length));
-    await expect(page.getByRole('region', { name: 'Pending holders' })).toContainText(count(pending.length));
-    await expect(page.getByRole('region', { name: 'Issued credentials' })).toContainText(count(issued.length));
+    await expect(countIn(page, 'Credential definitions')).toHaveText(String(defs.length));
+    await expect(countIn(page, 'Pending holders')).toHaveText(String(pending.length));
+    await expect(countIn(page, 'Issued credentials')).toHaveText(String(issued.length));
 
     await page.getByRole('link', { name: 'Review pending approvals' }).click();
     await expect(page).toHaveURL(/#\/holders$/);

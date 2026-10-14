@@ -14,6 +14,8 @@ const PAGES = [
     heading: 'Credentials',
     stubs: ['credentials', 'issuanceprocesses'],
     empty: ['No issued credentials', 'No issuance processes'],
+    // Each table loads on its own: both must report the failure.
+    regions: ['Issued credentials', 'Issuance processes'],
   },
   { route: '/trusted-issuers', heading: 'Trusted Issuers', registry: true, empty: ['No trusted issuers'] },
 ];
@@ -21,6 +23,15 @@ const PAGES = [
 async function stubAll(page, p, handler) {
   for (const kind of p.stubs ?? []) await page.route(isQuery(kind), handler);
   if (p.registry) await page.route(isRegistryList, handler);
+}
+
+/** A failed load never renders as an empty table, in any section. */
+async function expectFailedLoad(page, p, message) {
+  for (const text of p.empty) await expect(page.getByText(text, { exact: true })).toHaveCount(0);
+  for (const name of p.regions ?? []) {
+    const alert = page.getByRole('region', { name, exact: true }).getByRole('alert');
+    await expect(message ? alert.filter({ hasText: message }) : alert, `alert in "${name}"`).toBeVisible();
+  }
 }
 
 test.describe('UX basics', () => {
@@ -42,6 +53,7 @@ test.describe('UX basics', () => {
       await expect(pageHeading(page, p.heading)).toBeVisible();
       await expect(errorAlert(page, 'e2e: backend exploded')).toBeVisible();
       await expectLoaded(page);
+      await expectFailedLoad(page, p, 'e2e: backend exploded');
     });
 
     test(`${p.route}: an unreachable backend is shown in an alert`, async ({ page }) => {
@@ -49,6 +61,7 @@ test.describe('UX basics', () => {
       await gotoRoute(page, p.route);
       await expect(page.getByRole('alert').first()).toBeVisible();
       await expectLoaded(page);
+      await expectFailedLoad(page, p);
     });
 
     test(`${p.route}: a spinner shows while loading and goes away`, async ({ page }) => {

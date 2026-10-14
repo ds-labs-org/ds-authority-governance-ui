@@ -61,4 +61,41 @@ test.describe('app shell', () => {
     await gotoRoute(page, '/credential-definitions');
     expect((await apiCall).headers()['authorization']).toBe('Bearer e2e-config-token');
   });
+
+  test('375px: the masthead toggle opens the nav, and a nav click closes it again', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await gotoRoute(page, '/');
+    await expect(pageHeading(page, 'Dashboard')).toBeVisible();
+    const toggle = page.getByRole('button', { name: 'Global navigation', exact: true });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('navigation').getByRole('link', { name: 'Holders', exact: true }).click();
+    await expect(pageHeading(page, 'Holders')).toBeVisible();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await page.getByRole('button', { name: 'Register holder', exact: true }).click({ timeout: 3_000 });
+  });
+
+  test('participant_context_id from configuration.json is base64url-encoded in hub admin paths', async ({ page, stack }) => {
+    const pc = 'issuer-2';
+    const segment = Buffer.from(pc).toString('base64url'); // "aXNzdWVyLTI", no padding
+    await page.route('**/configuration.json', (r) =>
+      r.fulfill({ json: { ...stack.uiConfig, participant_context_id: pc } }),
+    );
+    const seen = [];
+    page.on('request', (req) => {
+      const { pathname } = new URL(req.url());
+      if (pathname.startsWith('/api/issuer/')) seen.push(pathname);
+    });
+    const apiCall = page.waitForRequest((req) => new URL(req.url()).pathname.startsWith('/api/issuer/'));
+    await gotoRoute(page, '/credential-definitions');
+    await apiCall;
+    expect(seen.length).toBeGreaterThan(0);
+    for (const path of seen) {
+      expect(path.startsWith(`/api/issuer/v1alpha/participants/${segment}/`), path).toBe(true);
+    }
+    // The hub only knows "issuer": the unknown context surfaces as an error, not an empty list.
+    await expect(page.getByRole('alert').first()).toBeVisible();
+    await expect(page.getByText('No credential definitions', { exact: true })).toHaveCount(0);
+  });
 });
