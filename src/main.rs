@@ -1,3 +1,8 @@
+// The app itself only runs on wasm32; on the host only the unit tests use
+// these modules, so unused-item lints there are noise.
+#![cfg_attr(not(target_arch = "wasm32"), allow(dead_code, unused_imports))]
+
+mod api;
 mod config;
 mod routes;
 mod store;

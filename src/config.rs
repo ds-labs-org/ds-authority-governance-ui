@@ -18,12 +18,43 @@
 
 use serde::Deserialize;
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Config {
     pub identity_api_path: String,
     pub issuer_admin_api_path: String,
+    /// Same-origin path the gateway forwards to the trusted issuers
+    /// registry. Optional, defaults to `/api/registry`.
+    #[serde(default = "default_registry_api_path")]
+    pub registry_api_path: String,
+    /// The hub's participant context id (sent base64-encoded in every
+    /// `v1alpha` path). Optional, defaults to `issuer`.
+    #[serde(default = "default_participant_context_id")]
+    pub participant_context_id: String,
     #[serde(default)]
     pub bearer_token: Option<String>,
+}
+
+pub const DEFAULT_REGISTRY_API_PATH: &str = "/api/registry";
+pub const DEFAULT_PARTICIPANT_CONTEXT_ID: &str = "issuer";
+
+fn default_registry_api_path() -> String {
+    todo!()
+}
+
+fn default_participant_context_id() -> String {
+    todo!()
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            identity_api_path: "/api/identity".to_string(),
+            issuer_admin_api_path: "/api/issuer".to_string(),
+            registry_api_path: default_registry_api_path(),
+            participant_context_id: default_participant_context_id(),
+            bearer_token: None,
+        }
+    }
 }
 
 impl Config {
@@ -32,12 +63,7 @@ impl Config {
     /// API call this app builds should route through this so a configured
     /// bearer token is applied consistently, on top of (not instead of) the
     /// browser's own same-origin session cookie.
-    ///
-    /// Not called anywhere yet - the shell doesn't make any API calls of its
-    /// own. Kept here (rather than dead-code-warned away) for the route
-    /// views that will build the actual identity-api / issuer-admin-api
-    /// clients.
-    #[allow(dead_code)]
+    /// `src/api/client.rs` routes every request through here.
     pub fn authorize(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         match &self.bearer_token {
             Some(token) => builder.bearer_auth(token),
@@ -83,5 +109,35 @@ mod tests {
         .unwrap();
 
         assert_eq!(config.bearer_token, Some("secret".to_string()));
+    }
+
+    #[test]
+    fn registry_path_and_participant_context_default_when_absent() {
+        let config: Config = serde_json::from_str(
+            r#"{"identity_api_path": "/api/identity", "issuer_admin_api_path": "/api/issuer"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.registry_api_path, "/api/registry");
+        assert_eq!(config.participant_context_id, "issuer");
+        assert_eq!(config, Config::default());
+    }
+
+    #[test]
+    fn registry_path_and_participant_context_are_read_when_present() {
+        let config: Config = serde_json::from_str(
+            r#"{"identity_api_path": "/i", "issuer_admin_api_path": "/a", "registry_api_path": "/r", "participant_context_id": "pc"}"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.registry_api_path, "/r");
+        assert_eq!(config.participant_context_id, "pc");
+    }
+
+    #[test]
+    fn shipped_configuration_json_parses_with_contract_values() {
+        let config: Config = serde_json::from_str(include_str!("../configuration.json")).unwrap();
+
+        assert_eq!(config, Config::default());
     }
 }
