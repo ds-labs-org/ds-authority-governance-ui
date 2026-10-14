@@ -34,6 +34,7 @@ impl ApiError {
         ApiError::Http { status, message }
     }
 
+    #[allow(dead_code)] // API surface; the views only need Display today
     pub fn status(&self) -> Option<u16> {
         match self {
             ApiError::Http { status, .. } => Some(*status),

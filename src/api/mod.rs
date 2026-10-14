@@ -18,5 +18,5 @@ pub mod requests;
 
 pub use error::ApiError;
 pub use models::*;
-pub use query::{QuerySpec, SortOrder};
-pub use requests::{Api, ApiRequest, IssuerFilter, Method};
+pub use query::QuerySpec;
+pub use requests::{Api, ApiRequest, IssuerFilter};

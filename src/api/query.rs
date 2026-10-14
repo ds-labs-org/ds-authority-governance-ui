@@ -7,6 +7,7 @@ use serde_json::Value;
 pub const MAX_LIMIT: u32 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[allow(dead_code)] // `Asc` is API surface; the views sort newest first
 pub enum SortOrder {
     #[serde(rename = "ASC")]
     Asc,
@@ -53,6 +54,7 @@ impl QuerySpec {
             .sort(sort_field, SortOrder::Desc)
     }
 
+    #[allow(dead_code)] // API surface (paging); the views load one capped page
     pub fn offset(mut self, offset: u32) -> Self {
         self.offset = Some(offset);
         self

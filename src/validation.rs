@@ -131,6 +131,8 @@ pub struct IssuerErrors {
 
 impl IssuerForm {
     /// Validates the form into the record to PUT, keeping `status`.
+    // A few Option<String>s, built once per submit: boxing buys nothing.
+    #[allow(clippy::result_large_err)]
     pub fn validate(&self, status: RegistryStatus) -> Result<IssuerRecord, IssuerErrors> {
         let did = self.did.trim();
         let accredited_by = self.accredited_by.trim();
