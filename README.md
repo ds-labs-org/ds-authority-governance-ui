@@ -7,18 +7,38 @@ track credential/issuance lifecycle, alongside the shared DCP identity
 bootstrap flow (participant context, `did:web` publishing, keypair
 lifecycle) used across ds-labs UIs.
 
-This repository currently holds the **app shell**: routing, runtime
-configuration, and shared state. The 5 routes below are wired up and each
-renders a one-line placeholder - the real views are filled in separately, as
-follow-on work.
+It talks to two backends through same-origin paths (see
+`configuration.json` below): the hub's Issuer Admin API (`v1alpha`, EDC
+shaped) and the trusted issuers registry. The wire contract is
+`governance/api-contract.md`; the typed client is `src/api/`.
 
-| Route | Component | Status |
+| Route | View | Status |
 |---|---|---|
-| `/` | Dashboard | placeholder |
-| `/credential-definitions` | Credential Definitions | placeholder |
-| `/holders` | Holders approval queue | placeholder |
-| `/credentials` | Credentials & Issuance | placeholder |
+| `/` | Dashboard: counts (credential definitions, pending holders, issuance processes in flight, issued credentials active/revoked), a **Review pending approvals** link when holders wait, and this issuer's trust status in the registry per credential type | done |
+| `/credential-definitions` | Credential Definitions: table, create/edit dialog with validation, delete with confirmation | done |
+| `/holders` | Holders: **Pending approval** queue (Approve / Reject with confirmation), all holders with a status filter, Register holder dialog | done |
+| `/credentials` | Credentials: issued credentials (Revoke with confirmation) and issuance processes; Refresh button, auto-refresh every 3 s while a process is SUBMITTED/APPROVED | done |
+| `/trusted-issuers` | Trusted Issuers: registry table with role/status filters, add/edit dialog, Suspend/Activate/Revoke, Delete with confirmation, Check trust form showing the accreditation chain; read-only banner and disabled write buttons when `GET {registry}/v1/admin` is not 2xx | done |
 | `/identity-bootstrap` | mounts `ds_identity_bootstrap_ui::ParticipantContextPanel` | placeholder - see below |
+
+UX conventions shared by every view: one `h1` per page (the nav label),
+spinners (`role="progressbar"`) while loading, an empty state for empty
+tables, errors in a danger alert (`role="alert"`) carrying the backend's
+`{"error": ...}` message, success confirmations as inline success alerts
+(`role="status"`), timestamps rendered as UTC, long DIDs/ids truncated with
+CSS (full value in the DOM and in `title`), dialogs named by their title.
+The e2e suite (`e2e/`, Playwright) relies on these accessible names; its
+README lists them.
+
+Code layout:
+
+| Path | What |
+|---|---|
+| `src/api/` | models, QuerySpec, request builders, error messages (host unit-tested), thin reqwest client |
+| `src/format.rs`, `src/validation.rs` | display formatting and form validation (host unit-tested) |
+| `src/components.rs` | shared accessible PatternFly building blocks (alerts, dialog, form fields, table helpers) |
+| `src/hooks.rs` | `use_config`, `use_load` (load + silent reload), `use_polling` |
+| `src/views/` | one module per route |
 
 Routing is **hash-based** (`yew_router::HashRouter`, URLs like
 `/#/holders`), not history/browser mode, so the built `dist/` bundle can be
@@ -100,7 +120,7 @@ trunk serve
 Then open `http://localhost:8080`. Without a proxy in front of it,
 `configuration.json`'s `identity_api_path` / `issuer_admin_api_path` won't
 resolve to real backends; edit `Trunk.toml`'s commented-out `[[proxy]]`
-blocks (or add your own) to forward those paths to services reachable from
+blocks (including one for `registry_api_path`) (or add your own) to forward those paths to services reachable from
 your machine while developing.
 
 Trunk `0.22.0-beta.2` is a pinned devtool, installed separately - it is not
@@ -112,6 +132,7 @@ Building the actual app for the browser:
 trunk build --release
 ```
 
-`cargo check --target wasm32-unknown-unknown` (and `cargo test` for the
-host-testable unit tests in `src/config.rs`) are the fast sanity checks
-during development, without needing Trunk installed at all.
+`cargo check --target wasm32-unknown-unknown` and `cargo test` (host unit
+tests for the API layer, formatting, validation and config) are the fast
+sanity checks during development, without needing Trunk installed at all.
+CI-equivalent lint: `cargo clippy --target wasm32-unknown-unknown -- -D warnings`.

@@ -28,3 +28,7 @@ version = "7.1.0"
 # [[proxy]]
 # rewrite = "/api/issuer"
 # backend = "http://localhost:8082/api/issuer"
+#
+# [[proxy]]
+# rewrite = "/api/registry"
+# backend = "http://localhost:8090"
