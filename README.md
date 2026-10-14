@@ -136,3 +136,20 @@ trunk build --release
 tests for the API layer, formatting, validation and config) are the fast
 sanity checks during development, without needing Trunk installed at all.
 CI-equivalent lint: `cargo clippy --target wasm32-unknown-unknown -- -D warnings`.
+
+## End-to-end tests
+
+`e2e/` holds a Playwright suite that drives the built console in Chromium
+against a real `ds-identity-hub-rs` issuer service, a real trusted issuers
+registry, a fake DCP holder and a gateway stand-in that serves `dist/` and
+injects the backend admin tokens. It also defines the accessibility
+contract (headings, button names, table columns, dialog titles, alert texts)
+the views are written against. See [`e2e/README.md`](e2e/README.md):
+
+```bash
+trunk build
+cd e2e && npm ci && REGISTRY_BIN=/path/to/trusted-issuers-registry npm test
+```
+
+The `e2e` GitHub workflow is manual (`workflow_dispatch`) until the
+registry has a repository CI can check out.
