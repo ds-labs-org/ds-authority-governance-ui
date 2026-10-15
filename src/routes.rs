@@ -15,6 +15,8 @@ pub enum Route {
     Holders,
     #[at("/credentials")]
     Credentials,
+    #[at("/trusted-issuers")]
+    TrustedIssuers,
     #[at("/identity-bootstrap")]
     IdentityBootstrap,
 }

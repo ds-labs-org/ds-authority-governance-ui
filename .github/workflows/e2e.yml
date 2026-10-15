@@ -1,0 +1,90 @@
+name: e2e
+
+# The registry repository is private: checking it out needs a read token in
+# the REGISTRY_READ_TOKEN secret (a fine-grained token with Contents: read on
+# ds-labs-org/ds-trusted-issuers-registry-rs). The hub is checked out at
+# `hub_ref` (default main), so this suite needs the Issuer Admin API to be
+# on that ref.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      hub_ref:
+        description: ds-identity-hub-rs ref to test against
+        default: main
+      registry_ref:
+        description: ds-trusted-issuers-registry-rs ref to test against
+        default: main
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ds-authority-governance-ui
+      - uses: actions/checkout@v4
+        with:
+          repository: ds-labs-org/ds-identity-hub-rs
+          ref: ${{ inputs.hub_ref || 'main' }}
+          path: ds-identity-hub-rs
+          submodules: true
+      - name: Check the registry read token
+        env:
+          REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_READ_TOKEN" ]; then
+            echo "::error::REGISTRY_READ_TOKEN is not set: add a read-only token for ds-labs-org/ds-trusted-issuers-registry-rs as a repository secret"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: ds-labs-org/ds-trusted-issuers-registry-rs
+          ref: ${{ inputs.registry_ref || 'main' }}
+          token: ${{ secrets.REGISTRY_READ_TOKEN }}
+          path: ds-trusted-issuers-registry-rs
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ds-authority-governance-ui
+            ds-identity-hub-rs
+            ds-trusted-issuers-registry-rs
+      - name: Build hub
+        run: cargo build --bin identity-hub
+        working-directory: ds-identity-hub-rs
+      - name: Build registry
+        run: cargo build -p trusted-issuers-http --bin trusted-issuers-registry
+        working-directory: ds-trusted-issuers-registry-rs
+      - name: Build console
+        run: |
+          cargo install trunk --version 0.22.0-beta.2 --locked
+          trunk build
+        working-directory: ds-authority-governance-ui
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ds-authority-governance-ui/e2e/package-lock.json
+      - name: Run Playwright
+        working-directory: ds-authority-governance-ui/e2e
+        env:
+          HUB_BIN: ${{ github.workspace }}/ds-identity-hub-rs/target/debug/identity-hub
+          REGISTRY_BIN: ${{ github.workspace }}/ds-trusted-issuers-registry-rs/target/debug/trusted-issuers-registry
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm test
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: |
+            ds-authority-governance-ui/e2e/playwright-report
+            ds-authority-governance-ui/e2e/test-results
+            ds-authority-governance-ui/e2e/.stack/*.log
