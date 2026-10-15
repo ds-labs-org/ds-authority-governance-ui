@@ -1,8 +1,22 @@
 name: e2e
 
-# Manual only until the registry has a repository CI can check out (see TODO).
+# The registry repository is private: checking it out needs a read token in
+# the REGISTRY_READ_TOKEN secret (a fine-grained token with Contents: read on
+# ds-labs-org/ds-trusted-issuers-registry-rs). The hub is checked out at
+# `hub_ref` (default main), so this suite needs the Issuer Admin API to be
+# on that ref.
 on:
+  pull_request:
+  push:
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      hub_ref:
+        description: ds-identity-hub-rs ref to test against
+        default: main
+      registry_ref:
+        description: ds-trusted-issuers-registry-rs ref to test against
+        default: main
 
 jobs:
   playwright:
@@ -15,13 +29,23 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ds-labs-org/ds-identity-hub-rs
+          ref: ${{ inputs.hub_ref || 'main' }}
           path: ds-identity-hub-rs
-      # TODO: ds-trusted-issuers-registry-rs has no repository yet (it ships as
-      # a git bundle). Once it does, check it out here next to the others:
-      # - uses: actions/checkout@v4
-      #   with:
-      #     repository: ds-labs-org/ds-trusted-issuers-registry-rs
-      #     path: ds-trusted-issuers-registry-rs
+          submodules: true
+      - name: Check the registry read token
+        env:
+          REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
+        run: |
+          if [ -z "$REGISTRY_READ_TOKEN" ]; then
+            echo "::error::REGISTRY_READ_TOKEN is not set: add a read-only token for ds-labs-org/ds-trusted-issuers-registry-rs as a repository secret"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          repository: ds-labs-org/ds-trusted-issuers-registry-rs
+          ref: ${{ inputs.registry_ref || 'main' }}
+          token: ${{ secrets.REGISTRY_READ_TOKEN }}
+          path: ds-trusted-issuers-registry-rs
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -30,13 +54,11 @@ jobs:
           workspaces: |
             ds-authority-governance-ui
             ds-identity-hub-rs
+            ds-trusted-issuers-registry-rs
       - name: Build hub
         run: cargo build --bin identity-hub
         working-directory: ds-identity-hub-rs
       - name: Build registry
-        # TODO: enable together with the registry checkout above. Until then
-        # the stack stops at startup with "REGISTRY_BIN ... not found".
-        if: ${{ false }}
         run: cargo build -p trusted-issuers-http --bin trusted-issuers-registry
         working-directory: ds-trusted-issuers-registry-rs
       - name: Build console

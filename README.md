@@ -156,5 +156,8 @@ trunk build
 cd e2e && npm ci && REGISTRY_BIN=/path/to/trusted-issuers-registry npm test
 ```
 
-The `e2e` GitHub workflow is manual (`workflow_dispatch`) until the
-registry has a repository CI can check out.
+The `e2e` GitHub workflow runs this suite on pull requests and on `main`,
+against `ds-identity-hub-rs` and `ds-trusted-issuers-registry-rs` at `main`
+(other refs via a manual run's inputs). The registry repository is private,
+so the workflow needs a `REGISTRY_READ_TOKEN` repository secret with read
+access to it.
