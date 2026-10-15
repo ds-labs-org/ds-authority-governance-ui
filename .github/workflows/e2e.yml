@@ -1,10 +1,7 @@
 name: e2e
 
-# The registry repository is private: checking it out needs a read token in
-# the REGISTRY_READ_TOKEN secret (a fine-grained token with Contents: read on
-# ds-labs-org/ds-trusted-issuers-registry-rs). The hub is checked out at
-# `hub_ref` (default main), so this suite needs the Issuer Admin API to be
-# on that ref.
+# Runs against ds-identity-hub-rs and ds-trusted-issuers-registry-rs (both
+# public) at `main`, or at the refs a manual run names.
 on:
   pull_request:
   push:
@@ -32,19 +29,10 @@ jobs:
           ref: ${{ inputs.hub_ref || 'main' }}
           path: ds-identity-hub-rs
           submodules: true
-      - name: Check the registry read token
-        env:
-          REGISTRY_READ_TOKEN: ${{ secrets.REGISTRY_READ_TOKEN }}
-        run: |
-          if [ -z "$REGISTRY_READ_TOKEN" ]; then
-            echo "::error::REGISTRY_READ_TOKEN is not set: add a read-only token for ds-labs-org/ds-trusted-issuers-registry-rs as a repository secret"
-            exit 1
-          fi
       - uses: actions/checkout@v4
         with:
           repository: ds-labs-org/ds-trusted-issuers-registry-rs
           ref: ${{ inputs.registry_ref || 'main' }}
-          token: ${{ secrets.REGISTRY_READ_TOKEN }}
           path: ds-trusted-issuers-registry-rs
       - uses: dtolnay/rust-toolchain@stable
         with:
