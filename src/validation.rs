@@ -2,7 +2,9 @@
 //! catches obvious mistakes early, with a message next to the field.
 //! Pure functions, unit-tested on the host.
 
-use crate::api::{CredentialDefinition, IssuerRecord, NewHolder, RegistryStatus, Role};
+use crate::api::{
+    CredentialDefinition, IssuerRecord, NewHolder, PostalAddress, RegistryStatus, Role,
+};
 use crate::format::{parse_date_input, split_list};
 
 const DID_MESSAGE: &str = "Must be a DID, e.g. did:web:example.com.";
@@ -228,6 +230,10 @@ impl IssuerForm {
             errors.x509_certificates = Some(e);
             Vec::new()
         });
+        let postal_address = self.postal_address().unwrap_or_else(|e| {
+            errors.postal_address = Some(e);
+            None
+        });
         let valid_from = parse_date_input(&self.valid_from).unwrap_or_else(|e| {
             errors.valid_from = Some(e);
             None
@@ -253,11 +259,44 @@ impl IssuerForm {
                 valid_until,
                 status,
                 x509_certificates,
-                postal_address: None,
+                postal_address,
                 updated_at: 0,
             }),
             _ => Err(errors),
         }
+    }
+
+    /// The postal address fields: none when all are empty, else street,
+    /// locality and a two-letter country (upper-cased) are required.
+    fn postal_address(&self) -> Result<Option<PostalAddress>, String> {
+        let street = self.street_address.trim();
+        let locality = self.locality.trim();
+        let country = self.country.trim().to_ascii_uppercase();
+        let postal_code = non_empty(&self.postal_code);
+        let region = non_empty(&self.region);
+        if street.is_empty()
+            && locality.is_empty()
+            && country.is_empty()
+            && postal_code.is_none()
+            && region.is_none()
+        {
+            return Ok(None);
+        }
+        if street.is_empty() || locality.is_empty() || country.is_empty() {
+            return Err(
+                "Street, locality and country are all required for a postal address.".into(),
+            );
+        }
+        if country.len() != 2 || !country.bytes().all(|c| c.is_ascii_uppercase()) {
+            return Err("Country must be a two-letter ISO 3166-1 code, e.g. BE.".into());
+        }
+        Ok(Some(PostalAddress {
+            street_address: street.to_string(),
+            locality: locality.to_string(),
+            postal_code,
+            state_or_province: region,
+            country,
+        }))
     }
 }
 

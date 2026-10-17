@@ -157,7 +157,13 @@ async function startRegistry() {
     'registry',
     path.resolve(process.env.REGISTRY_BIN),
     // did:web hosts must be DNS names (the registry refuses IP addresses).
-    ['--bind', `127.0.0.1:${port}`, '--did-host', `localhost:${port}`],
+    [
+      '--bind', `127.0.0.1:${port}`, '--did-host', `localhost:${port}`,
+      // Publishes the ETSI LoTE, which needs its operator's postal address.
+      '--lote-operator-street', 'Rue de la Loi 200',
+      '--lote-operator-locality', 'Brussels',
+      '--lote-operator-country', 'BE',
+    ],
     { TRUSTED_ISSUERS_ADMIN_TOKEN: adminToken },
   );
   const url = `http://127.0.0.1:${port}`;

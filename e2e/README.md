@@ -43,7 +43,7 @@ Never run `playwright install`; Chromium comes from `PLAYWRIGHT_BROWSERS_PATH`
 | `REGISTRY_BIN` | none (required) | `trusted-issuers-registry` binary |
 | `UI_DIST` | `../dist` | trunk output (relative to `e2e/`) |
 | `HUB_URL`, `HUB_ADMIN_URL`, `HUB_ADMIN_TOKEN` | | use a running hub instead of spawning one |
-| `REGISTRY_URL`, `REGISTRY_ADMIN_TOKEN` | | use a running registry instead |
+| `REGISTRY_URL`, `REGISTRY_ADMIN_TOKEN` | | use a running registry instead (started with `--lote-operator-street`, `-locality` and `-country`, or the LoTE answers 503) |
 | `HUB_EXTRA_ARGS` | | extra hub flags |
 | `E2E_STACK_DIR` | `e2e/.stack` | state file and logs |
 
@@ -126,6 +126,10 @@ or alert **Could not issue accreditations**. A `<form aria-label="Check
 trust">` with **Issuer id**, **Credential type**, button **Check**; result
 inside it in `role="status"`, text **Trusted** or **Not trusted** (+ reason),
 and an `<ol aria-label="Trust chain">` with one item per id, issuer first.
+The issuer dialog also has a **Postal address** group: **Street** (which
+shows the address error), **Locality**, **Postal code**, **Region** and
+**Country**, all optional together; a partial address or a country that is
+not two letters is refused in the dialog.
 When the console may write: table **Audit log** (Seq, Time, Actor, Action,
 Issuer id, Hash), button **Load more** while older pages remain. Links
 **LoTE (JSON)** and **signed LoTE (JWS)**. When `GET /api/registry/v1/admin`

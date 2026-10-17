@@ -472,7 +472,17 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
             valid_from: r.valid_from.map(date_input).unwrap_or_default(),
             valid_until: r.valid_until.map(date_input).unwrap_or_default(),
             x509_certificates: r.x509_certificates.join("\n"),
-            ..Default::default()
+            ..r.postal_address
+                .as_ref()
+                .map(|a| IssuerForm {
+                    street_address: a.street_address.clone(),
+                    locality: a.locality.clone(),
+                    postal_code: a.postal_code.clone().unwrap_or_default(),
+                    region: a.state_or_province.clone().unwrap_or_default(),
+                    country: a.country.clone(),
+                    ..Default::default()
+                })
+                .unwrap_or_default()
         },
     });
     let errors = use_state(IssuerErrors::default);
@@ -656,6 +666,34 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                     error={errors.x509_certificates.clone()}
                     helper={AttrValue::Static("Optional. For issuers proven by a certificate chain (e.g. an mDL issuing authority's IACA root): one base64 DER certificate per line.")}
                 />
+                <fieldset class="pf-v6-c-form__fieldset">
+                    <legend class="pf-v6-c-form__label">
+                        <span class="pf-v6-c-form__label-text">{ "Postal address" }</span>
+                    </legend>
+                    <p class="pf-v6-c-form__helper-text">
+                        { "Optional. The registry's ETSI LoTE lists only parties with a postal address." }
+                    </p>
+                    <TextField
+                        id="issuer-street"
+                        label="Street"
+                        value={form.street_address.clone()}
+                        oninput={field(|f, v| f.street_address = v)}
+                        error={errors.postal_address.clone()}
+                    />
+                    <div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-md">
+                        <TextField id="issuer-locality" label="Locality" value={form.locality.clone()} oninput={field(|f, v| f.locality = v)} />
+                        <TextField id="issuer-postal-code" label="Postal code" value={form.postal_code.clone()} oninput={field(|f, v| f.postal_code = v)} />
+                        <TextField id="issuer-region" label="Region" value={form.region.clone()} oninput={field(|f, v| f.region = v)} />
+                        <TextField
+                            id="issuer-country"
+                            label="Country"
+                            value={form.country.clone()}
+                            oninput={field(|f, v| f.country = v)}
+                            placeholder="BE"
+                            helper={AttrValue::Static("ISO 3166-1 alpha-2.")}
+                        />
+                    </div>
+                </fieldset>
             </form>
         </Dialog>
     }

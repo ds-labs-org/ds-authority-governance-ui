@@ -179,6 +179,55 @@ test.describe('trusted issuers', () => {
     await tir.remove(root);
   });
 
+  test('a postal address is kept, checked and puts the party on the LoTE', async ({ page, tir }) => {
+    const root = `did:web:${uid('root')}.example`;
+    const ti = `did:web:${uid('ti')}.example`;
+    expect((await tir.put({ id: root, role: 'root_tao', credentialTypes: ['*'], status: 'active' })).status).toBe(201);
+    expect(
+      (await tir.put({ id: ti, role: 'ti', credentialTypes: ['MembershipCredential'], accreditedBy: root, status: 'active' }))
+        .status,
+    ).toBe(201);
+    const lotedIds = async () => {
+      const res = await page.request.get(new URL('/api/registry/v1/lote', page.url()).href);
+      expect(res.status()).toBe(200);
+      const lote = await res.json();
+      return lote.LoTE.TrustedEntitiesList.flatMap((e) =>
+        e.TrustedEntityServices.flatMap((s) => s.ServiceInformation.ServiceDigitalIdentity.OtherIds ?? []),
+      );
+    };
+    // No address yet, so not on the LoTE.
+    expect(await lotedIds()).not.toContain(ti);
+    await page.reload();
+    await expectLoaded(page);
+
+    await row(table(page, TABLE), ti).getByRole('button', { name: 'Edit', exact: true }).click();
+    const dlg = dialog(page, 'Edit trusted issuer');
+    await dlg.getByLabel('Locality', { exact: true }).fill('Lyon');
+    await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dlg).toContainText('Street, locality and country are all required');
+    await dlg.getByLabel('Street', { exact: true }).fill('1 Rue de la République');
+    await dlg.getByLabel('Country', { exact: true }).fill('France');
+    await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dlg).toContainText('two-letter ISO 3166-1 code');
+    await dlg.getByLabel('Country', { exact: true }).fill('fr');
+    await dlg.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(dlg).toBeHidden();
+    expect((await tir.get(ti)).json.postalAddress).toEqual({
+      streetAddress: '1 Rue de la République',
+      locality: 'Lyon',
+      country: 'FR',
+    });
+    expect(await lotedIds()).toContain(ti);
+
+    // Editing again starts from the stored address.
+    await row(table(page, TABLE), ti).getByRole('button', { name: 'Edit', exact: true }).click();
+    await expect(dialog(page, 'Edit trusted issuer').getByLabel('Locality', { exact: true })).toHaveValue('Lyon');
+    await dialog(page, 'Edit trusted issuer').getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await tir.remove(ti);
+    await tir.remove(root);
+  });
+
   for (const status of [401, 403]) {
     test(`read-only banner when the registry admin API answers ${status}`, async ({ page }) => {
       await page.route(
