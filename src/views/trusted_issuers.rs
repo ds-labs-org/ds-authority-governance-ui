@@ -421,7 +421,7 @@ fn issuers_table(
                         { cell("Status", registry_status_label(record.status)) }
                         { cell("Valid until", record.valid_until.map_or_else(|| "No expiry".to_string(), |t| timestamp_or(Some(t), ""))) }
                         <td class="pf-v6-c-table__td pf-v6-c-table__action" data-label="Actions">
-                            <div class="pf-v6-l-flex pf-m-gap-xs" style="min-width: 19rem;">
+                            <div class="pf-v6-l-flex pf-m-gap-xs" style="min-width: 13rem;">
                                 <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Edit" onclick={opener(Open::Edit)} {disabled} />
                                 if record.status == RegistryStatus::Active {
                                     <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Suspend" onclick={status_to(RegistryStatus::Suspended)} {disabled} />
