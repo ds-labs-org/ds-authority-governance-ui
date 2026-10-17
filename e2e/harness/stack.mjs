@@ -192,11 +192,19 @@ async function startRegistry() {
   await launch('registry');
   let restarts = 0;
   /** Stops the registry and starts it again from its data file, on the same
-   * port and token. Rejects (with the log tail) if it does not come back. */
+   * port and token. Rejects (with the log tail) if it does not come back,
+   * after setting the refused file aside and starting the registry again
+   * empty, so one failed restart does not take down the specs after it. */
   registry.restart = async () => {
     await killProc(registry.proc);
     restarts += 1;
-    await launch(`registry-restart-${restarts}`);
+    try {
+      await launch(`registry-restart-${restarts}`);
+    } catch (err) {
+      fs.renameSync(dataFile, `${dataFile}.refused-${restarts}`);
+      await launch(`registry-recovered-${restarts}`);
+      throw err;
+    }
   };
   return registry;
 }
