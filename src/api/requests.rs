@@ -152,8 +152,8 @@ impl<'a> Api<'a> {
         }
     }
 
-    fn issuer_path(did: &str) -> String {
-        format!("/issuers/{}", encode_component(did))
+    fn issuer_path(id: &str) -> String {
+        format!("/issuers/{}", encode_component(id))
     }
 
     pub fn list_issuers(&self, filter: &IssuerFilter) -> ApiRequest {
@@ -183,7 +183,7 @@ impl<'a> Api<'a> {
     pub fn put_issuer(&self, record: &IssuerRecord) -> ApiRequest {
         self.registry(
             Method::Put,
-            &Self::issuer_path(&record.did),
+            &Self::issuer_path(&record.id),
             json_body(record),
         )
     }
@@ -434,7 +434,7 @@ mod tests {
             )
         );
         let record = IssuerRecord {
-            did: did.into(),
+            id: did.into(),
             role: Role::Ti,
             name: Some("H".into()),
             credential_types: vec!["MembershipCredential".into()],
@@ -442,6 +442,7 @@ mod tests {
             valid_from: None,
             valid_until: Some(10),
             status: RegistryStatus::Active,
+            x509_certificates: Vec::new(),
             updated_at: 99,
         };
         assert_eq!(
@@ -450,7 +451,7 @@ mod tests {
                 Method::Put,
                 seg,
                 Some(json!({
-                    "did": did, "role": "ti", "name": "H",
+                    "id": did, "role": "ti", "name": "H",
                     "credentialTypes": ["MembershipCredential"],
                     "accreditedBy": "did:web:root", "validUntil": 10, "status": "active"
                 }))

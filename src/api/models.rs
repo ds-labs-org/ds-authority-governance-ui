@@ -301,11 +301,14 @@ impl RegistryStatus {
     }
 }
 
-/// One registry record (`GET/PUT /v1/issuers/{did}`).
+/// One registry record (`GET/PUT /v1/issuers/{id}`).
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuerRecord {
-    pub did: String,
+    /// The party: a DID (DCP issuers) or an https OID4VCI credential issuer
+    /// URL. Read as `did` too, the key before OID4VCI issuers were listed.
+    #[serde(alias = "did")]
+    pub id: String,
     pub role: Role,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -318,6 +321,10 @@ pub struct IssuerRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valid_until: Option<u64>,
     pub status: RegistryStatus,
+    /// X.509 trust anchors (base64 DER), for issuers proven by a
+    /// certificate chain (an mDL issuing authority's IACA root, ...).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub x509_certificates: Vec<String>,
     /// Set by the registry; omitted from PUT bodies.
     #[serde(default, skip_serializing)]
     pub updated_at: u64,
@@ -334,7 +341,7 @@ pub struct IssuerList {
     pub items: Vec<IssuerRecord>,
 }
 
-/// `GET /v1/issuers/{did}/types/{type}` response.
+/// `GET /v1/issuers/{id}/types/{type}` response.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct TrustDecision {
     pub trusted: bool,
@@ -465,7 +472,7 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&rec).unwrap(),
             json!({
-                "did": "did:web:ti", "role": "ti", "credentialTypes": ["MembershipCredential"],
+                "id": "did:web:ti", "role": "ti", "credentialTypes": ["MembershipCredential"],
                 "accreditedBy": "did:web:root", "status": "active"
             })
         );

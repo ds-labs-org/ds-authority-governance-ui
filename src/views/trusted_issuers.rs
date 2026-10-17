@@ -370,13 +370,13 @@ fn issuers_table(
                     Callback::from(move |_: MouseEvent| open.dispatch(Show::Open(make(record.clone()))))
                 };
                 let status_to = |status: RegistryStatus| {
-                    let did = record.did.clone();
+                    let did = record.id.clone();
                     set_status.reform(move |_: MouseEvent| (did.clone(), status))
                 };
-                let disabled = !writable || busy.has(&record.did);
+                let disabled = !writable || busy.has(&record.id);
                 html! {
-                    <tr class="pf-v6-c-table__tr" key={record.did.clone()}>
-                        { long_cell("DID", &record.did) }
+                    <tr class="pf-v6-c-table__tr" key={record.id.clone()}>
+                        { long_cell("DID", &record.id) }
                         { cell("Name", record.name.clone().unwrap_or_else(|| "-".into())) }
                         { cell("Role", record.role.label()) }
                         { cell("Credential types", record.credential_types.join(", ")) }
@@ -395,9 +395,9 @@ fn issuers_table(
                                     <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
                                 }
                                 if record.status != RegistryStatus::Revoked {
-                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(|r| Open::Revoke(r.did))} {disabled} />
+                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(|r| Open::Revoke(r.id))} {disabled} />
                                 }
-                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(|r| Open::Delete(r.did))} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(|r| Open::Delete(r.id))} {disabled} />
                             </div>
                         </td>
                     </tr>
@@ -429,7 +429,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
     let form = use_state(|| match &props.existing {
         None => IssuerForm::default(),
         Some(r) => IssuerForm {
-            did: r.did.clone(),
+            id: r.id.clone(),
             name: r.name.clone().unwrap_or_default(),
             role: r.role.as_str().to_string(),
             credential_types: r.credential_types.join(", "),
@@ -475,13 +475,13 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                 let api = Api::new(&config);
                 // PUT is an upsert: never overwrite an existing record from "Add".
                 if !editing {
-                    match client::send_raw(&config, &api.get_issuer(&record.did)).await {
+                    match client::send_raw(&config, &api.get_issuer(&record.id)).await {
                         Ok((404, _)) => {}
                         Ok((status, _)) if (200..300).contains(&status) => {
                             busy.set(false);
                             failure.set(Some(format!(
                                 "Conflict: {} is already in the registry. Edit it instead.",
-                                record.did
+                                record.id
                             )));
                             return;
                         }
@@ -503,7 +503,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                     Ok(()) => onsaved.emit(format!(
                         "{} {}.",
                         if editing { "Saved" } else { "Added" },
-                        record.did
+                        record.id
                     )),
                     Err(e) => failure.set(Some(e.to_string())),
                 }
@@ -535,7 +535,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
     let accreditor_options: Vec<&IssuerRecord> = props
         .accreditors
         .iter()
-        .filter(|r| r.did != form.did.trim())
+        .filter(|r| r.id != form.id.trim())
         .collect();
 
     html! {
@@ -551,10 +551,10 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                 <TextField
                     id="issuer-did"
                     label="DID"
-                    value={form.did.clone()}
-                    oninput={field(|f, v| f.did = v)}
+                    value={form.id.clone()}
+                    oninput={field(|f, v| f.id = v)}
                     readonly={editing}
-                    error={errors.did.clone()}
+                    error={errors.id.clone()}
                     placeholder="did:web:issuer.example"
                 />
                 <TextField id="issuer-name" label="Name" value={form.name.clone()} oninput={field(|f, v| f.name = v)} />
@@ -585,8 +585,8 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                 />
                 <datalist id="issuer-accreditors">
                     { for accreditor_options.iter().map(|r| html! {
-                        <option value={r.did.clone()}>
-                            { format!("{} ({})", r.name.clone().unwrap_or_else(|| r.did.clone()), r.role.label()) }
+                        <option value={r.id.clone()}>
+                            { format!("{} ({})", r.name.clone().unwrap_or_else(|| r.id.clone()), r.role.label()) }
                         </option>
                     }) }
                 </datalist>
@@ -714,7 +714,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
         Callback::from(move |v: String| s.set(v))
     };
     let describe = |chain_did: &str| -> Html {
-        match props.known.iter().find(|r| r.did == chain_did) {
+        match props.known.iter().find(|r| r.id == chain_did) {
             Some(r) => html! {
                 <>
                     <span class="pf-v6-u-text-break-word">{ chain_did.to_string() }</span>
@@ -786,7 +786,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
                     />
                 </div>
                 <datalist id="check-known-dids">
-                    { for props.known.iter().map(|r| html! { <option value={r.did.clone()} /> }) }
+                    { for props.known.iter().map(|r| html! { <option value={r.id.clone()} /> }) }
                 </datalist>
                 <div class="pf-v6-c-form__group pf-m-action">
                     <div class="pf-v6-c-form__actions">

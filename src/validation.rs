@@ -106,7 +106,7 @@ pub fn validate_holder(did: &str, name: &str) -> Result<NewHolder, HolderErrors>
 /// Raw values of the trusted issuer form.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssuerForm {
-    pub did: String,
+    pub id: String,
     pub name: String,
     /// Wire value: `root_tao`, `tao` or `ti`.
     pub role: String,
@@ -121,7 +121,7 @@ pub struct IssuerForm {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssuerErrors {
-    pub did: Option<String>,
+    pub id: Option<String>,
     pub role: Option<String>,
     pub credential_types: Option<String>,
     pub accredited_by: Option<String>,
@@ -134,12 +134,12 @@ impl IssuerForm {
     // A few Option<String>s, built once per submit: boxing buys nothing.
     #[allow(clippy::result_large_err)]
     pub fn validate(&self, status: RegistryStatus) -> Result<IssuerRecord, IssuerErrors> {
-        let did = self.did.trim();
+        let id = self.id.trim();
         let accredited_by = self.accredited_by.trim();
         let role = Role::parse(self.role.trim());
         let types = split_list(&self.credential_types);
         let mut errors = IssuerErrors {
-            did: did_error(did, "DID is required."),
+            id: did_error(id, "DID is required."),
             ..Default::default()
         };
 
@@ -179,7 +179,7 @@ impl IssuerForm {
 
         match role {
             Some(role) if errors == IssuerErrors::default() => Ok(IssuerRecord {
-                did: did.to_string(),
+                id: id.to_string(),
                 role,
                 name: non_empty(&self.name),
                 credential_types: types,
@@ -187,6 +187,7 @@ impl IssuerForm {
                 valid_from,
                 valid_until,
                 status,
+                x509_certificates: Vec::new(),
                 updated_at: 0,
             }),
             _ => Err(errors),
@@ -304,7 +305,7 @@ mod tests {
 
     fn form() -> IssuerForm {
         IssuerForm {
-            did: "did:web:ti".into(),
+            id: "did:web:ti".into(),
             name: "Issuer".into(),
             role: "ti".into(),
             credential_types: "MembershipCredential, Other".into(),
@@ -320,7 +321,7 @@ mod tests {
         assert_eq!(
             rec,
             IssuerRecord {
-                did: "did:web:ti".into(),
+                id: "did:web:ti".into(),
                 role: Role::Ti,
                 name: Some("Issuer".into()),
                 credential_types: vec!["MembershipCredential".into(), "Other".into()],
@@ -328,6 +329,7 @@ mod tests {
                 valid_from: None,
                 valid_until: Some(1798761600),
                 status: RegistryStatus::Suspended,
+                x509_certificates: Vec::new(),
                 updated_at: 0,
             }
         );
@@ -364,7 +366,7 @@ mod tests {
     #[test]
     fn issuer_form_errors() {
         let f = IssuerForm {
-            did: "nope".into(),
+            id: "nope".into(),
             role: "".into(),
             credential_types: " , ".into(),
             accredited_by: "".into(),
@@ -374,7 +376,7 @@ mod tests {
         };
         let e = f.validate(RegistryStatus::Active).unwrap_err();
         assert_eq!(
-            e.did.as_deref(),
+            e.id.as_deref(),
             Some("Must be a DID, e.g. did:web:example.com.")
         );
         assert_eq!(e.role.as_deref(), Some("Choose a role."));
