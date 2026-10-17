@@ -70,8 +70,11 @@ export function registry(stack) {
   const { url, adminToken } = stack.registry;
   const enc = encodeURIComponent;
   return {
-    get: (did) => call(url, null, 'GET', `/v1/issuers/${enc(did)}`),
-    put: (rec) => call(url, adminToken, 'PUT', `/v1/issuers/${enc(rec.did)}`, rec),
+    get: (id) => call(url, null, 'GET', `/v1/issuers/${enc(id)}`),
+    // Records name their party `id` (a DID or an OID4VCI issuer URL); `did` is still accepted.
+    put: (rec) => call(url, adminToken, 'PUT', `/v1/issuers/${enc(rec.id ?? rec.did)}`, rec),
+    accreditations: (id) => call(url, null, 'GET', `/v1/issuers/${enc(id)}/accreditations`),
+    audit: () => call(url, adminToken, 'GET', '/v1/admin/audit?limit=1000'),
     setStatus: (did, status) => call(url, adminToken, 'PATCH', `/v1/issuers/${enc(did)}/status`, { status }),
     remove: (did) => call(url, adminToken, 'DELETE', `/v1/issuers/${enc(did)}`),
     check: (did, type) => call(url, null, 'GET', `/v1/issuers/${enc(did)}/types/${enc(type)}`),

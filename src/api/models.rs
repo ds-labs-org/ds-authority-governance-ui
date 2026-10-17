@@ -343,16 +343,21 @@ impl IdKind {
     pub const ALL: [IdKind; 2] = [IdKind::Did, IdKind::Url];
 
     pub fn as_str(self) -> &'static str {
-        "did"
+        match self {
+            IdKind::Did => "did",
+            IdKind::Url => "url",
+        }
     }
 
     pub fn label(self) -> &'static str {
-        ""
+        match self {
+            IdKind::Did => "DID (DCP)",
+            IdKind::Url => "URL (OID4VCI)",
+        }
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        let _ = value;
-        None
+        Self::ALL.into_iter().find(|k| k.as_str() == value)
     }
 }
 
@@ -597,9 +602,19 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(page.entries[0].action, "status");
-        assert_eq!(page.entries[0].after.as_ref().unwrap().status, RegistryStatus::Suspended);
-        assert_eq!(page.head, Some(AuditHead { seq: 2, hash: "bb".into() }));
-        let empty: AuditPage = serde_json::from_value(json!({"entries": [], "head": null})).unwrap();
+        assert_eq!(
+            page.entries[0].after.as_ref().unwrap().status,
+            RegistryStatus::Suspended
+        );
+        assert_eq!(
+            page.head,
+            Some(AuditHead {
+                seq: 2,
+                hash: "bb".into()
+            })
+        );
+        let empty: AuditPage =
+            serde_json::from_value(json!({"entries": [], "head": null})).unwrap();
         assert_eq!(empty.head, None);
         let a: Accreditations =
             serde_json::from_value(json!({"accreditations": ["a.b.c", "d.e.f"]})).unwrap();

@@ -108,22 +108,30 @@ Credential definitions, State (`SUBMITTED`, `APPROVED`, `DELIVERED`,
 `ERRORED`, `REJECTED` verbatim). Button **Refresh**. Empty: **No issued
 credentials**, **No issuance processes**.
 
-**Trusted Issuers** - table **Trusted issuers**: DID, Name, Role (**Root
-TAO** / **TAO** / **Trusted issuer**), Credential types, Accredited by,
-Status (`active`/`suspended`/`revoked`). Button **Add trusted issuer** ->
-dialog **Add trusted issuer** with **DID**, **Name**, **Role** (native
-`<select>`, option values `root_tao`, `tao`, `ti`), **Credential types**
-(comma-separated), **Accredited by**, button **Save**; failure alert
-**Could not save trusted issuer**. Row **Suspend** / **Activate**
-(immediate) and **Delete** -> dialog **Delete trusted issuer** naming the
-DID, button **Delete**; failure alert **Could not delete trusted issuer**.
-A `<form aria-label="Check trust">` with **Issuer DID**, **Credential
-type**, button **Check**; result inside it in `role="status"`, text
-**Trusted** or **Not trusted** (+ reason), and an `<ol aria-label="Trust
-chain">` with one item per DID, issuer first. When `GET
-/api/registry/v1/admin` is not 2xx: visible text containing "read-only"
-(any case) and no enabled Add/Suspend/Activate/Delete buttons; the table
-and check form still work. Empty: **No trusted issuers**.
+**Trusted Issuers** - table **Trusted issuers**: Issuer id (a DID for DCP
+issuers, an https credential issuer URL for OID4VCI ones), Name, Role
+(**Root TAO** / **TAO** / **Trusted issuer**), Credential types, Accredited
+by, Status (`active`/`suspended`/`revoked`). Selects **Filter by role**,
+**Filter by status**, **Filter by identifier** (option values `did`, `url`).
+Button **Add trusted issuer** -> dialog **Add trusted issuer** with **Issuer
+id**, **Name**, **Role** (native `<select>`, option values `root_tao`, `tao`,
+`ti`), **Credential types** (comma-separated), **Accredited by**, **X.509
+trust anchors** (textarea, one base64 DER certificate per line), button
+**Save**; failure alert **Could not save trusted issuer**. Row **Suspend** /
+**Activate** (immediate), **Delete** -> dialog **Delete trusted issuer**
+naming the id, button **Delete**; failure alert **Could not delete trusted
+issuer**; and **Accreditations** (also read-only) -> dialog
+**Accreditations** with the text "N accreditation VCs" and button **Close**,
+or alert **Could not issue accreditations**. A `<form aria-label="Check
+trust">` with **Issuer id**, **Credential type**, button **Check**; result
+inside it in `role="status"`, text **Trusted** or **Not trusted** (+ reason),
+and an `<ol aria-label="Trust chain">` with one item per id, issuer first.
+When the console may write: table **Audit log** (Seq, Time, Actor, Action,
+Issuer id, Hash), button **Load more** while older pages remain. Links
+**LoTE (JSON)** and **signed LoTE (JWS)**. When `GET /api/registry/v1/admin`
+is not 2xx: visible text containing "read-only" (any case), no enabled
+Add/Suspend/Activate/Delete buttons and no audit log; the table and check
+form still work. Empty: **No trusted issuers**.
 
 The console polls nothing on its own as far as the tests care: they click
 **Refresh** until the expected state appears.

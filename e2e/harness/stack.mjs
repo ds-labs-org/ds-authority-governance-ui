@@ -156,7 +156,8 @@ async function startRegistry() {
   const proc = spawnLogged(
     'registry',
     path.resolve(process.env.REGISTRY_BIN),
-    ['--bind', `127.0.0.1:${port}`, '--did-host', `127.0.0.1:${port}`],
+    // did:web hosts must be DNS names (the registry refuses IP addresses).
+    ['--bind', `127.0.0.1:${port}`, '--did-host', `localhost:${port}`],
     { TRUSTED_ISSUERS_ADMIN_TOKEN: adminToken },
   );
   const url = `http://127.0.0.1:${port}`;
