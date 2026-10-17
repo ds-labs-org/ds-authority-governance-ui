@@ -330,6 +330,75 @@ pub struct IssuerRecord {
     pub updated_at: u64,
 }
 
+/// How a registry party is named: a DID (DCP issuers) or an https OID4VCI
+/// credential issuer URL (`?idKind=` on `GET /v1/issuers`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdKind {
+    Did,
+    Url,
+}
+
+impl IdKind {
+    pub const ALL: [IdKind; 2] = [IdKind::Did, IdKind::Url];
+
+    pub fn as_str(self) -> &'static str {
+        "did"
+    }
+
+    pub fn label(self) -> &'static str {
+        ""
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        let _ = value;
+        None
+    }
+}
+
+/// One audited registry write (`GET /v1/admin/audit`).
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuditEntry {
+    pub seq: u64,
+    pub at: u64,
+    pub actor: String,
+    /// `put`, `status` or `delete`.
+    pub action: String,
+    pub id: String,
+    #[serde(default)]
+    pub before: Option<IssuerRecord>,
+    #[serde(default)]
+    pub after: Option<IssuerRecord>,
+    pub version: u64,
+    pub prev_hash: String,
+    pub hash: String,
+}
+
+/// The latest entry of the whole audit log.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
+pub struct AuditHead {
+    pub seq: u64,
+    pub hash: String,
+}
+
+/// `GET /v1/admin/audit` response.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct AuditPage {
+    #[serde(default)]
+    pub entries: Vec<AuditEntry>,
+    #[serde(default)]
+    pub head: Option<AuditHead>,
+}
+
+/// `GET /v1/issuers/{id}/accreditations` response: registry-signed JWT VCs,
+/// issuer first.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct Accreditations {
+    #[serde(default)]
+    pub accreditations: Vec<String>,
+}
+
 /// `GET /v1/issuers` response.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct IssuerList {
@@ -502,6 +571,39 @@ mod tests {
         let written = serde_json::to_value(&legacy).unwrap();
         assert_eq!(written["id"], "did:web:ti");
         assert!(written.get("x509Certificates").is_none(), "{written}");
+    }
+
+    #[test]
+    fn id_kind_helpers() {
+        assert_eq!(IdKind::Did.as_str(), "did");
+        assert_eq!(IdKind::Url.as_str(), "url");
+        assert_eq!(IdKind::Did.label(), "DID (DCP)");
+        assert_eq!(IdKind::Url.label(), "URL (OID4VCI)");
+        assert_eq!(IdKind::parse("url"), Some(IdKind::Url));
+        assert_eq!(IdKind::parse(""), None);
+    }
+
+    #[test]
+    fn audit_page_and_accreditations_parse() {
+        let page: AuditPage = serde_json::from_value(json!({
+            "entries": [{
+                "seq": 2, "at": 1792000000, "actor": "alice", "action": "status",
+                "id": "did:web:ti",
+                "before": {"id": "did:web:ti", "role": "ti", "credentialTypes": ["T"], "status": "active"},
+                "after": {"id": "did:web:ti", "role": "ti", "credentialTypes": ["T"], "status": "suspended"},
+                "version": 2, "prevHash": "aa", "hash": "bb"
+            }],
+            "head": {"seq": 2, "hash": "bb"}
+        }))
+        .unwrap();
+        assert_eq!(page.entries[0].action, "status");
+        assert_eq!(page.entries[0].after.as_ref().unwrap().status, RegistryStatus::Suspended);
+        assert_eq!(page.head, Some(AuditHead { seq: 2, hash: "bb".into() }));
+        let empty: AuditPage = serde_json::from_value(json!({"entries": [], "head": null})).unwrap();
+        assert_eq!(empty.head, None);
+        let a: Accreditations =
+            serde_json::from_value(json!({"accreditations": ["a.b.c", "d.e.f"]})).unwrap();
+        assert_eq!(a.accreditations.len(), 2);
     }
 
     #[test]

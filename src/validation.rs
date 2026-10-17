@@ -71,6 +71,18 @@ pub fn is_did(value: &str) -> bool {
         && !id.chars().any(char::is_whitespace)
 }
 
+/// Whether `value` may name a registry party: a DID (DCP issuers) or an
+/// https OID4VCI credential issuer URL. The registry applies the full
+/// rules; this catches typos before a round trip.
+pub fn is_issuer_id(value: &str) -> bool {
+    is_did(value)
+}
+
+fn issuer_id_error(value: &str, required: &str) -> Option<String> {
+    let _ = required;
+    did_error(value, "DID is required.")
+}
+
 fn did_error(value: &str, required: &str) -> Option<String> {
     if value.is_empty() {
         Some(required.to_string())
@@ -117,6 +129,8 @@ pub struct IssuerForm {
     pub valid_from: String,
     /// `YYYY-MM-DD` or empty.
     pub valid_until: String,
+    /// X.509 trust anchors, one base64 DER certificate per line.
+    pub x509_certificates: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -127,6 +141,7 @@ pub struct IssuerErrors {
     pub accredited_by: Option<String>,
     pub valid_from: Option<String>,
     pub valid_until: Option<String>,
+    pub x509_certificates: Option<String>,
 }
 
 impl IssuerForm {
@@ -312,7 +327,70 @@ mod tests {
             accredited_by: "did:web:root".into(),
             valid_from: "".into(),
             valid_until: "2027-01-01".into(),
+            x509_certificates: "".into(),
         }
+    }
+
+    #[test]
+    fn issuer_ids_are_dids_or_https_urls() {
+        for ok in [
+            "did:web:example.com",
+            "https://issuer.example",
+            "https://issuer.example:8443/tenants/acme",
+        ] {
+            assert!(is_issuer_id(ok), "{ok}");
+        }
+        for bad in [
+            "http://issuer.example",
+            "https://",
+            "https://issuer.example/?x=1",
+            "https://issuer.example/#f",
+            "https://issuer example",
+            "issuer.example",
+        ] {
+            assert!(!is_issuer_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_oid4vci_issuer_with_anchors_validates() {
+        let f = IssuerForm {
+            id: " https://mdl.example ".into(),
+            accredited_by: "https://tao.example/tenants/x".into(),
+            credential_types: "org.iso.18013.5.1.mDL".into(),
+            x509_certificates: " MIIBVzCB/qADAg== \n\n MIIBWDCB+qADAgECAhQ= ".into(),
+            ..form()
+        };
+        let rec = f.validate(RegistryStatus::Active).unwrap();
+        assert_eq!(rec.id, "https://mdl.example");
+        assert_eq!(rec.accredited_by.as_deref(), Some("https://tao.example/tenants/x"));
+        assert_eq!(
+            rec.x509_certificates,
+            vec!["MIIBVzCB/qADAg==".to_string(), "MIIBWDCB+qADAgECAhQ=".to_string()]
+        );
+
+        let bad = IssuerForm {
+            id: "http://mdl.example".into(),
+            x509_certificates: "-----BEGIN CERTIFICATE-----".into(),
+            ..form()
+        };
+        let e = bad.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.id.as_deref(),
+            Some("Must be a DID or an https credential issuer URL, e.g. did:web:example.com or https://issuer.example.")
+        );
+        assert_eq!(
+            e.x509_certificates.as_deref(),
+            Some("One base64 DER certificate per line (no PEM headers).")
+        );
+        let missing = IssuerForm {
+            id: " ".into(),
+            ..form()
+        };
+        assert_eq!(
+            missing.validate(RegistryStatus::Active).unwrap_err().id.as_deref(),
+            Some("Issuer id is required.")
+        );
     }
 
     #[test]

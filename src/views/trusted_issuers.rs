@@ -74,6 +74,7 @@ pub fn trusted_issuers() -> Html {
         role: Role::parse(&role_filter),
         status: RegistryStatus::parse(&status_filter),
         credential_type: None,
+        id_kind: None,
     };
     let (issuers, reload_issuers) = use_load(move |config| list(config, filter));
     // Every active record that may accredit, for the "Accredited by"
@@ -436,6 +437,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
             accredited_by: r.accredited_by.clone().unwrap_or_default(),
             valid_from: r.valid_from.map(date_input).unwrap_or_default(),
             valid_until: r.valid_until.map(date_input).unwrap_or_default(),
+            x509_certificates: r.x509_certificates.join("\n"),
         },
     });
     let errors = use_state(IssuerErrors::default);

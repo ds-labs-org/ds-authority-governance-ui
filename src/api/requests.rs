@@ -10,7 +10,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::encoding::{base64_url, encode_component};
-use super::models::{CredentialDefinition, IssuerRecord, NewHolder, RegistryStatus, Role};
+use super::models::{
+    CredentialDefinition, IdKind, IssuerRecord, NewHolder, RegistryStatus, Role,
+};
 use super::query::QuerySpec;
 use crate::config::Config;
 
@@ -38,6 +40,7 @@ pub struct IssuerFilter {
     pub role: Option<Role>,
     pub status: Option<RegistryStatus>,
     pub credential_type: Option<String>,
+    pub id_kind: Option<IdKind>,
 }
 
 /// Builds requests from the runtime configuration.
@@ -210,6 +213,25 @@ impl<'a> Api<'a> {
             ),
             None,
         )
+    }
+
+    /// `GET /v1/issuers/{id}/accreditations`.
+    pub fn issuer_accreditations(&self, id: &str) -> ApiRequest {
+        let _ = id;
+        self.registry(Method::Get, "/", None)
+    }
+
+    /// `GET /v1/admin/audit?after=N&limit=L[&id=ID]` (admin only).
+    pub fn audit_log(&self, after: u64, limit: u32, id: Option<&str>) -> ApiRequest {
+        let _ = (after, limit, id);
+        self.registry(Method::Get, "/", None)
+    }
+
+    /// Link to the registry's ETSI TS 119 602 List of Trusted Entities
+    /// (`signed`: the compact JWS form).
+    pub fn lote_url(&self, signed: bool) -> String {
+        let _ = signed;
+        String::new()
     }
 
     /// `GET /v1/admin`: 204 when the console may write to the registry.
@@ -394,6 +416,7 @@ mod tests {
             role: Some(Role::RootTao),
             status: Some(RegistryStatus::Suspended),
             credential_type: Some("Membership Credential".into()),
+            id_kind: None,
         };
         assert_eq!(
             api.list_issuers(&filter).url,
@@ -407,6 +430,41 @@ mod tests {
             api.list_issuers(&only_status).url,
             "/api/registry/v1/issuers?status=active"
         );
+    }
+
+    #[test]
+    fn registry_requests_for_oid4vci_ids_audit_accreditations_and_lote() {
+        let c = config();
+        let api = Api::new(&c);
+        // An OID4VCI credential issuer URL is one path segment too.
+        let id = "https://issuer.example/tenants/acme";
+        let seg = "/api/registry/v1/issuers/https%3A%2F%2Fissuer.example%2Ftenants%2Facme";
+        assert_eq!(api.get_issuer(id), req(Method::Get, seg, None));
+        assert_eq!(
+            api.issuer_accreditations(id),
+            req(Method::Get, &format!("{seg}/accreditations"), None)
+        );
+        assert_eq!(
+            api.list_issuers(&IssuerFilter {
+                id_kind: Some(IdKind::Url),
+                ..Default::default()
+            }),
+            req(Method::Get, "/api/registry/v1/issuers?idKind=url", None)
+        );
+        assert_eq!(
+            api.audit_log(0, 50, None),
+            req(Method::Get, "/api/registry/v1/admin/audit?after=0&limit=50", None)
+        );
+        assert_eq!(
+            api.audit_log(50, 50, Some("did:web:h%3A1")),
+            req(
+                Method::Get,
+                "/api/registry/v1/admin/audit?after=50&limit=50&id=did%3Aweb%3Ah%253A1",
+                None
+            )
+        );
+        assert_eq!(api.lote_url(false), "/api/registry/v1/lote");
+        assert_eq!(api.lote_url(true), "/api/registry/v1/lote.jws");
     }
 
     #[test]
