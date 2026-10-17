@@ -18,7 +18,7 @@ shaped) and the trusted issuers registry. The wire contract is
 | `/credential-definitions` | Credential Definitions: table, create/edit dialog with validation, delete with confirmation | done |
 | `/holders` | Holders: **Pending approval** queue (Approve / Reject with confirmation), all holders with a status filter, Register holder dialog | done |
 | `/credentials` | Credentials: issued credentials (Revoke with confirmation) and issuance processes; Refresh button, auto-refresh every 3 s while a delivery is in flight (APPROVED), every 30 s while only SUBMITTED processes wait for approval | done |
-| `/trusted-issuers` | Trusted Issuers: registry table with role/status filters, add/edit dialog, Suspend/Activate/Revoke, Delete with confirmation, Check trust form showing the accreditation chain (re-run after every write, out-of-order answers dropped); read-only banner and disabled write buttons when `GET {registry}/v1/admin` is not 2xx | done |
+| `/trusted-issuers` | Trusted Issuers: registry table of DCP issuers (by DID) and OID4VCI issuers (by credential issuer URL) with role/status/identifier filters, add/edit dialog (including X.509 trust anchors), Suspend/Activate/Revoke, Delete with confirmation, an issuer's accreditation VCs, Check trust form showing the accreditation chain (re-run after every write, out-of-order answers dropped), the registry's hash-chained audit log (when writable), links to its ETSI TS 119 602 LoTE; read-only banner and disabled write buttons when `GET {registry}/v1/admin` is not 2xx | done |
 | `/identity-bootstrap` | mounts `ds_identity_bootstrap_ui::ParticipantContextPanel` | placeholder - see below |
 
 UX conventions shared by every view: one `h1` per page (the nav label),
@@ -157,7 +157,9 @@ cd e2e && npm ci && REGISTRY_BIN=/path/to/trusted-issuers-registry npm test
 ```
 
 The `e2e` GitHub workflow runs this suite on pull requests and on `main`,
-against `ds-identity-hub-rs` and `ds-trusted-issuers-registry-rs` at `main`
-(other refs via a manual run's inputs). The registry repository is private,
+against `ds-identity-hub-rs` and `ds-trusted-issuers-registry-rs` at their
+`ccr-180333f6-p88qlb` branches, which carry the registry endpoints this
+console uses, until those merge; then back to `main` (other refs via a
+manual run's inputs). The registry repository is private,
 so the workflow needs a `REGISTRY_READ_TOKEN` repository secret with read
 access to it.
