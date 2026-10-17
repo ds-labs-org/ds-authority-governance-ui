@@ -13,7 +13,7 @@ hub --Storage API POST /<holder>/credentials--> fake-holder.mjs
 
 | File | What it does |
 |---|---|
-| `harness/stack.mjs` | Starts hub (`issuer-service --holder-approval manual`, admin listener), registry, fake holder and proxy on free ports; writes `.stack/stack.json`; backend logs in `.stack/*.log`. Run alone with `npm run stack`. |
+| `harness/stack.mjs` | Starts hub (`issuer-service --holder-approval manual`, admin listener, random operator secret), registry (`did:web:localhost%3A<port>`: the registry refuses an IP in `--did-host`), fake holder and proxy on free ports; writes `.stack/stack.json`; backend logs in `.stack/*.log`. Run alone with `npm run stack`. |
 | `harness/fake-holder.mjs` | DCP holder: P-256 key (WebCrypto), `did:web:127.0.0.1%3A<port>:<name>` document at `/<name>/did.json`, ES256 Self-Issued ID Tokens, Credential Requests, `GET /requests/{id}`, Storage API sink. JSON control API under `/_control` for the tests. |
 | `harness/proxy.mjs` | Serves `dist/`, a generated `configuration.json`, forwards `/api/issuer` and `/api/registry` (prefix stripped, admin bearer injected, browser `Authorization` dropped). |
 | `harness/backend.mjs` | Direct backend calls for setup/assertions only, plus the status-list decoder. |
@@ -43,6 +43,7 @@ Never run `playwright install`; Chromium comes from `PLAYWRIGHT_BROWSERS_PATH`
 | `REGISTRY_BIN` | none (required) | `trusted-issuers-registry` binary |
 | `UI_DIST` | `../dist` | trunk output (relative to `e2e/`) |
 | `HUB_URL`, `HUB_ADMIN_URL`, `HUB_ADMIN_TOKEN` | | use a running hub instead of spawning one |
+| `HUB_STS_CLIENT_ID`, `HUB_STS_CLIENT_SECRET` | | that running hub's operator credentials |
 | `REGISTRY_URL`, `REGISTRY_ADMIN_TOKEN` | | use a running registry instead |
 | `HUB_EXTRA_ARGS` | | extra hub flags |
 | `E2E_STACK_DIR` | `e2e/.stack` | state file and logs |
