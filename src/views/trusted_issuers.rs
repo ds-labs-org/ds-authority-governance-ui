@@ -472,6 +472,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
             valid_from: r.valid_from.map(date_input).unwrap_or_default(),
             valid_until: r.valid_until.map(date_input).unwrap_or_default(),
             x509_certificates: r.x509_certificates.join("\n"),
+            ..Default::default()
         },
     });
     let errors = use_state(IssuerErrors::default);

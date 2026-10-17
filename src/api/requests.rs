@@ -513,6 +513,7 @@ mod tests {
             valid_until: Some(10),
             status: RegistryStatus::Active,
             x509_certificates: Vec::new(),
+            postal_address: None,
             updated_at: 99,
         };
         assert_eq!(

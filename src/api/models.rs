@@ -325,9 +325,28 @@ pub struct IssuerRecord {
     /// certificate chain (an mDL issuing authority's IACA root, ...).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub x509_certificates: Vec<String>,
+    /// Postal address; the registry's ETSI LoTE lists only parties that
+    /// have one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postal_address: Option<PostalAddress>,
     /// Set by the registry; omitted from PUT bodies.
     #[serde(default, skip_serializing)]
     pub updated_at: u64,
+}
+
+/// A registry party's postal address, as the ETSI TS 119 602 LoTE carries
+/// it.
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PostalAddress {
+    pub street_address: String,
+    pub locality: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub postal_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_or_province: Option<String>,
+    /// ISO 3166-1 alpha-2.
+    pub country: String,
 }
 
 /// How a registry party is named: a DID (DCP issuers) or an https OID4VCI
@@ -549,6 +568,26 @@ mod tests {
                 "id": "did:web:ti", "role": "ti", "credentialTypes": ["MembershipCredential"],
                 "accreditedBy": "did:web:root", "status": "active"
             })
+        );
+    }
+
+    #[test]
+    fn issuer_records_keep_their_postal_address() {
+        let address = json!({
+            "streetAddress": "Rue de la Loi 200", "locality": "Brussels",
+            "postalCode": "1049", "country": "BE"
+        });
+        let rec: IssuerRecord = serde_json::from_value(json!({
+            "id": "did:web:ti", "role": "ti", "credentialTypes": ["T"], "status": "active",
+            "postalAddress": address
+        }))
+        .unwrap();
+        let postal = rec.postal_address.clone().unwrap();
+        assert_eq!(postal.locality, "Brussels");
+        assert_eq!(postal.state_or_province, None);
+        assert_eq!(
+            serde_json::to_value(&rec).unwrap()["postalAddress"],
+            address
         );
     }
 

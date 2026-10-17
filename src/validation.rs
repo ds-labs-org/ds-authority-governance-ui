@@ -169,6 +169,13 @@ pub struct IssuerForm {
     pub valid_until: String,
     /// X.509 trust anchors, one base64 DER certificate per line.
     pub x509_certificates: String,
+    /// Postal address; all five empty means none.
+    pub street_address: String,
+    pub locality: String,
+    pub postal_code: String,
+    pub region: String,
+    /// ISO 3166-1 alpha-2, any case.
+    pub country: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -180,6 +187,7 @@ pub struct IssuerErrors {
     pub valid_from: Option<String>,
     pub valid_until: Option<String>,
     pub x509_certificates: Option<String>,
+    pub postal_address: Option<String>,
 }
 
 impl IssuerForm {
@@ -245,6 +253,7 @@ impl IssuerForm {
                 valid_until,
                 status,
                 x509_certificates,
+                postal_address: None,
                 updated_at: 0,
             }),
             _ => Err(errors),
@@ -370,7 +379,55 @@ mod tests {
             valid_from: "".into(),
             valid_until: "2027-01-01".into(),
             x509_certificates: "".into(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_postal_address_is_optional_but_complete() {
+        let rec = form().validate(RegistryStatus::Active).unwrap();
+        assert_eq!(rec.postal_address, None);
+
+        let f = IssuerForm {
+            street_address: " Rue de la Loi 200 ".into(),
+            locality: "Brussels".into(),
+            postal_code: "1049".into(),
+            country: "be".into(),
+            ..form()
+        };
+        let address = f.validate(RegistryStatus::Active).unwrap().postal_address;
+        assert_eq!(
+            address,
+            Some(crate::api::PostalAddress {
+                street_address: "Rue de la Loi 200".into(),
+                locality: "Brussels".into(),
+                postal_code: Some("1049".into()),
+                state_or_province: None,
+                country: "BE".into(),
+            })
+        );
+
+        let partial = IssuerForm {
+            locality: "Brussels".into(),
+            ..form()
+        };
+        let e = partial.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.postal_address.as_deref(),
+            Some("Street, locality and country are all required for a postal address.")
+        );
+
+        let bad_country = IssuerForm {
+            street_address: "Rue de la Loi 200".into(),
+            locality: "Brussels".into(),
+            country: "Belgium".into(),
+            ..form()
+        };
+        let e = bad_country.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.postal_address.as_deref(),
+            Some("Country must be a two-letter ISO 3166-1 code, e.g. BE.")
+        );
     }
 
     #[test]
@@ -462,6 +519,7 @@ mod tests {
                 valid_until: Some(1798761600),
                 status: RegistryStatus::Suspended,
                 x509_certificates: Vec::new(),
+                postal_address: None,
                 updated_at: 0,
             }
         );
