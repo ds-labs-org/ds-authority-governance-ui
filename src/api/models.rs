@@ -472,6 +472,32 @@ mod tests {
     }
 
     #[test]
+    fn issuer_records_are_read_by_id_and_written_with_id() {
+        // The registry names a party `id` (a DID for DCP issuers, an https
+        // URL for OID4VCI ones) and may list X.509 trust anchors; records
+        // from before the rename still say `did`.
+        let current = json!({
+            "id": "https://issuer.example/tenants/acme", "role": "ti",
+            "credentialTypes": ["https://credentials.example/pid"],
+            "accreditedBy": "did:web:root", "status": "active",
+            "x509Certificates": ["MIIB"], "updatedAt": 5
+        });
+        let rec: IssuerRecord = serde_json::from_value(current).unwrap();
+        let written = serde_json::to_value(&rec).unwrap();
+        assert_eq!(written["id"], "https://issuer.example/tenants/acme");
+        assert!(written.get("did").is_none(), "{written}");
+        assert_eq!(written["x509Certificates"], json!(["MIIB"]));
+
+        let legacy: IssuerRecord = serde_json::from_value(json!({
+            "did": "did:web:ti", "role": "ti", "credentialTypes": ["T"], "status": "active"
+        }))
+        .unwrap();
+        let written = serde_json::to_value(&legacy).unwrap();
+        assert_eq!(written["id"], "did:web:ti");
+        assert!(written.get("x509Certificates").is_none(), "{written}");
+    }
+
+    #[test]
     fn role_and_status_helpers() {
         assert_eq!(Role::RootTao.as_str(), "root_tao");
         assert_eq!(Role::Tao.as_str(), "tao");
