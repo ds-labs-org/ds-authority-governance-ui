@@ -13,11 +13,13 @@ hub --Storage API POST /<holder>/credentials--> fake-holder.mjs
 
 | File | What it does |
 |---|---|
-| `harness/stack.mjs` | Starts hub (`issuer-service --holder-approval manual`, admin listener, random operator secret), registry (`did:web:localhost%3A<port>`: the registry refuses an IP in `--did-host`), fake holder and proxy on free ports; writes `.stack/stack.json`; backend logs in `.stack/*.log`. Run alone with `npm run stack`. |
+| `harness/stack.mjs` | Starts hub (`issuer-service --holder-approval manual`, admin listener, random operator secret), registry (`did:web:localhost%3A<port>`: the registry refuses an IP in `--did-host`; data file `.stack/registry.json`, recreated each run), fake holder and proxy on free ports; writes `.stack/stack.json`; backend logs in `.stack/*.log`. A control server at `stack.harnessUrl` restarts the registry from its data file (`POST /registry/restart`; 501 when `REGISTRY_URL` is set). Run alone with `npm run stack`. |
 | `harness/fake-holder.mjs` | DCP holder: P-256 key (WebCrypto), `did:web:127.0.0.1%3A<port>:<name>` document at `/<name>/did.json`, ES256 Self-Issued ID Tokens, Credential Requests, `GET /requests/{id}`, Storage API sink. JSON control API under `/_control` for the tests. |
 | `harness/proxy.mjs` | Serves `dist/`, a generated `configuration.json`, forwards `/api/issuer` and `/api/registry` (prefix stripped, admin bearer injected, browser `Authorization` dropped). |
 | `harness/backend.mjs` | Direct backend calls for setup/assertions only, plus the status-list decoder. |
+| `harness/wallet.mjs` | Minimal OID4VCI wallet: the operator creates a Pre-Authorized Code offer with the stack's operator credentials, a fresh P-256 key (`did:jwk`) redeems it. |
 | `tests/*.spec.mjs` | The specs. One worker: the stack is shared, so every test uses unique ids/DIDs. |
+| `tests/audit-regressions.spec.mjs` | Non-regression checks for the 2026-10-16 audit findings C1, E1, E2, E3. They need hub and registry builds that carry those fixes; a few spawn the hub binary themselves, so they skip when `HUB_URL` is set. |
 
 ## Running
 

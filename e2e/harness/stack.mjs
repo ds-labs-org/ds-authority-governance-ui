@@ -1,9 +1,11 @@
 // Starts the whole e2e stack on free 127.0.0.1 ports:
 //   hub (identity-hub issuer-service, manual holder approval, admin listener)
-//   registry (trusted-issuers-registry, in memory)
+//   registry (trusted-issuers-registry, data file in .stack/, restartable)
 //   fake DCP holder (./fake-holder.mjs)
 //   gateway proxy serving dist/ (./proxy.mjs)
 // and writes everything tests need to `.stack/stack.json` (see readStack).
+// A small control server (stack.harnessUrl) lets specs restart the registry
+// from its data file: `POST /registry/restart`.
 //
 // Env:
 //   HUB_BIN          default <repo>/../ds-identity-hub-rs/target/debug/identity-hub
@@ -19,6 +21,7 @@
 
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import net from 'node:net';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -151,7 +154,7 @@ async function startHub() {
       ).ok,
     { proc, timeoutMs: 15_000 },
   );
-  return { url, adminUrl, adminToken, stsClientId, stsClientSecret, proc };
+  return { url, adminUrl, adminToken, stsClientId, stsClientSecret, bin, proc };
 }
 
 async function startRegistry() {
@@ -166,17 +169,62 @@ async function startRegistry() {
   }
   const port = await freePort();
   const adminToken = token();
-  const proc = spawnLogged(
-    'registry',
-    path.resolve(process.env.REGISTRY_BIN),
+  const bin = path.resolve(process.env.REGISTRY_BIN);
+  fs.mkdirSync(STACK_DIR, { recursive: true });
+  const dataFile = path.join(STACK_DIR, 'registry.json');
+  fs.rmSync(dataFile, { force: true });
+  const args = [
+    '--bind', `127.0.0.1:${port}`,
     // The registry only accepts a DNS name in --did-host (no IP literal),
     // so its did:web is `did:web:localhost%3A<port>`; it still binds 127.0.0.1.
-    ['--bind', `127.0.0.1:${port}`, '--did-host', `localhost:${port}`],
-    { TRUSTED_ISSUERS_ADMIN_TOKEN: adminToken },
-  );
+    '--did-host', `localhost:${port}`,
+    '--data-file', dataFile,
+    '--create-data-file',
+  ];
   const url = `http://127.0.0.1:${port}`;
-  await waitFor('registry (GET /health)', async () => (await fetch(`${url}/health`)).ok, { proc });
-  return { url, adminToken, proc };
+  const registry = { url, adminToken, bin, dataFile, proc: null };
+  const launch = async (name) => {
+    registry.proc = spawnLogged(name, bin, args, { TRUSTED_ISSUERS_ADMIN_TOKEN: adminToken });
+    await waitFor('registry (GET /health)', async () => (await fetch(`${url}/health`)).ok, {
+      proc: registry.proc,
+    });
+  };
+  await launch('registry');
+  let restarts = 0;
+  /** Stops the registry and starts it again from its data file, on the same
+   * port and token. Rejects (with the log tail) if it does not come back. */
+  registry.restart = async () => {
+    await killProc(registry.proc);
+    restarts += 1;
+    await launch(`registry-restart-${restarts}`);
+  };
+  return registry;
+}
+
+/** The harness control server: what specs cannot do from a worker. */
+async function startControl({ registry, onChange }) {
+  const server = http.createServer(async (req, res) => {
+    const reply = (status, body) => {
+      res.writeHead(status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(body));
+    };
+    if (req.method === 'POST' && req.url === '/registry/restart') {
+      if (!registry.restart) return reply(501, { error: 'the registry was not started by the harness' });
+      try {
+        await registry.restart();
+        onChange();
+        return reply(200, { ok: true });
+      } catch (err) {
+        return reply(500, { error: String(err?.message ?? err) });
+      }
+    }
+    return reply(404, { error: 'not found' });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    url: `http://127.0.0.1:${server.address().port}`,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
 }
 
 /** Starts everything. Returns { info, stop() }; `info` is also written to STACK_FILE. */
@@ -201,6 +249,10 @@ export async function startStack({ log = () => {} } = {}) {
     if (registry.proc) started.push(() => killProc(registry.proc));
     log(`registry ${registry.url}`);
 
+    let writeInfo = () => {};
+    const control = await startControl({ registry, onChange: () => writeInfo() });
+    started.push(() => control.close());
+
     const holder = await startFakeHolder();
     started.push(() => holder.close());
     log(`fake holder ${holder.origin}`);
@@ -221,6 +273,7 @@ export async function startStack({ log = () => {} } = {}) {
     const issuerDid = (await (await fetch(`${hub.url}/metadata`)).json()).issuer;
     const info = {
       uiUrl: proxy.url,
+      harnessUrl: control.url,
       distDir,
       uiConfig,
       hub: {
@@ -230,15 +283,26 @@ export async function startStack({ log = () => {} } = {}) {
         adminToken: hub.adminToken,
         stsClientId: hub.stsClientId ?? null,
         stsClientSecret: hub.stsClientSecret ?? null,
+        bin: hub.bin ?? null,
         participantContextId: PARTICIPANT_CONTEXT_ID,
         log: hub.proc?.logFile ?? null,
       },
-      registry: { url: registry.url, adminToken: registry.adminToken, log: registry.proc?.logFile ?? null },
+      registry: {
+        url: registry.url,
+        adminToken: registry.adminToken,
+        bin: registry.bin ?? null,
+        log: registry.proc?.logFile ?? null,
+      },
       fakeHolder: { url: holder.origin, defaultDid: holder.holder().did },
       pids: [hub.proc?.child.pid, registry.proc?.child.pid].filter(Boolean),
     };
-    fs.mkdirSync(STACK_DIR, { recursive: true });
-    fs.writeFileSync(STACK_FILE, JSON.stringify(info, null, 2));
+    writeInfo = () => {
+      info.registry.log = registry.proc?.logFile ?? null;
+      info.pids = [hub.proc?.child.pid, registry.proc?.child.pid].filter(Boolean);
+      fs.mkdirSync(STACK_DIR, { recursive: true });
+      fs.writeFileSync(STACK_FILE, JSON.stringify(info, null, 2));
+    };
+    writeInfo();
     return { info, stop };
   } catch (err) {
     await stop();
