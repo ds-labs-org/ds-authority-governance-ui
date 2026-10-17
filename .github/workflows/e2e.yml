@@ -13,10 +13,10 @@ on:
     inputs:
       hub_ref:
         description: ds-identity-hub-rs ref to test against
-        default: main
+        default: ccr-180333f6-p88qlb
       registry_ref:
         description: ds-trusted-issuers-registry-rs ref to test against
-        default: main
+        default: ccr-180333f6-p88qlb
 
 jobs:
   playwright:
@@ -29,7 +29,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ds-labs-org/ds-identity-hub-rs
-          ref: ${{ inputs.hub_ref || 'main' }}
+          # The console needs the registry's audit, accreditation and LoTE
+          # endpoints, which are on ccr-180333f6-p88qlb (registry and hub)
+          # until those branches merge; then switch these defaults back to main.
+          ref: ${{ inputs.hub_ref || 'ccr-180333f6-p88qlb' }}
           path: ds-identity-hub-rs
           submodules: true
       - name: Check the registry read token
@@ -43,9 +46,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: ds-labs-org/ds-trusted-issuers-registry-rs
-          ref: ${{ inputs.registry_ref || 'main' }}
+          ref: ${{ inputs.registry_ref || 'ccr-180333f6-p88qlb' }}
           token: ${{ secrets.REGISTRY_READ_TOKEN }}
           path: ds-trusted-issuers-registry-rs
+          # vendor/contreforts-core (the registry's Contreforts connector).
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

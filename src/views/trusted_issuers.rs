@@ -7,8 +7,8 @@ use yew::platform::spawn_local;
 use yew::prelude::*;
 
 use crate::api::{
-    Api, ApiError, IssuerFilter, IssuerList, IssuerRecord, RegistryStatus, Role, TrustDecision,
-    client,
+    Accreditations, Api, ApiError, AuditEntry, AuditPage, IdKind, IssuerFilter, IssuerList,
+    IssuerRecord, RegistryStatus, Role, TrustDecision, client,
 };
 use crate::components::*;
 use crate::format::{date_input, timestamp_or};
@@ -17,7 +17,7 @@ use crate::validation::{IssuerErrors, IssuerForm};
 
 const TABLE: &str = "Trusted issuers";
 const COLUMNS: [&str; 8] = [
-    "DID",
+    "Issuer id",
     "Name",
     "Role",
     "Credential types",
@@ -33,10 +33,12 @@ enum Open {
     None,
     Add,
     Edit(IssuerRecord),
-    /// DID to revoke.
+    /// Id to revoke.
     Revoke(String),
-    /// DID to delete.
+    /// Id to delete.
     Delete(String),
+    /// Id whose accreditation VCs to show.
+    Accreditations(String),
 }
 
 pub fn registry_status_label(status: RegistryStatus) -> Html {
@@ -68,12 +70,14 @@ pub fn trusted_issuers() -> Html {
     let config = use_config();
     let role_filter = use_state(String::new);
     let status_filter = use_state(String::new);
+    let kind_filter = use_state(String::new);
 
     let (admin, _) = use_load(probe_admin);
     let filter = IssuerFilter {
         role: Role::parse(&role_filter),
         status: RegistryStatus::parse(&status_filter),
         credential_type: None,
+        id_kind: IdKind::parse(&kind_filter),
     };
     let (issuers, reload_issuers) = use_load(move |config| list(config, filter));
     // Every active record that may accredit, for the "Accredited by"
@@ -220,6 +224,14 @@ pub fn trusted_issuers() -> Html {
                     .map(|r| (r.as_str().to_string(), r.label().to_string())),
             )
             .collect();
+    let kind_options: Vec<(String, String)> =
+        std::iter::once((String::new(), "All identifiers".to_string()))
+            .chain(
+                IdKind::ALL
+                    .iter()
+                    .map(|k| (k.as_str().to_string(), k.label().to_string())),
+            )
+            .collect();
     let status_options: Vec<(String, String)> =
         std::iter::once((String::new(), "All statuses".to_string()))
             .chain(
@@ -247,7 +259,8 @@ pub fn trusted_issuers() -> Html {
             html!(<ErrorAlert title="Could not load trusted issuers" message={message.clone()} />)
         }
         Load::Ready(list) => {
-            let filtered = !role_filter.is_empty() || !status_filter.is_empty();
+            let filtered =
+                !role_filter.is_empty() || !status_filter.is_empty() || !kind_filter.is_empty();
             issuers_table(&list.items, filtered, writable, &busy, &open, &set_status)
         }
     };
@@ -277,6 +290,9 @@ pub fn trusted_issuers() -> Html {
                 </ConfirmDialog>
             }
         }
+        Open::Accreditations(target) => {
+            html!(<AccreditationsDialog id={target.clone()} onclose={close.clone()} />)
+        }
         Open::Delete(target) => {
             let did = target.clone();
             html! {
@@ -305,7 +321,7 @@ pub fn trusted_issuers() -> Html {
         <>
             <PageHeader
                 title="Trusted Issuers"
-                description="Who may issue which credential types in this dataspace, and who accredited them."
+                description="Who may issue which credential types in this dataspace, and who accredited them: DCP issuers by DID, OID4VCI issuers by credential issuer URL."
             />
             <PageSection>
                 if let Load::Ready(Some(reason)) = &admin {
@@ -314,6 +330,13 @@ pub fn trusted_issuers() -> Html {
                     </InlineAlert>
                 }
                 <FeedbackAlert feedback={(*feedback).clone()} onclose={{ let f = feedback.clone(); Callback::from(move |()| f.set(None)) }} />
+                <p class="pf-v6-u-mb-md">
+                    { "Published as an ETSI TS 119 602 List of Trusted Entities: " }
+                    <a href={Api::new(&config).lote_url(false)} target="_blank" rel="noopener">{ "LoTE (JSON)" }</a>
+                    { ", " }
+                    <a href={Api::new(&config).lote_url(true)} target="_blank" rel="noopener">{ "signed LoTE (JWS)" }</a>
+                    { "." }
+                </p>
                 <div class="pf-v6-l-flex pf-m-align-items-flex-end pf-m-gap-md pf-v6-u-mb-md">
                     <PfButton variant={ButtonVariant::Primary} label="Add trusted issuer" onclick={add} disabled={!writable} />
                     <div>
@@ -328,12 +351,23 @@ pub fn trusted_issuers() -> Html {
                         </label>
                         { select_control("issuer-status-filter".into(), &status_filter, &status_options, onfilter(&status_filter), false, false) }
                     </div>
+                    <div>
+                        <label class="pf-v6-c-form__label" for="issuer-kind-filter">
+                            <span class="pf-v6-c-form__label-text">{ "Filter by identifier" }</span>
+                        </label>
+                        { select_control("issuer-kind-filter".into(), &kind_filter, &kind_options, onfilter(&kind_filter), false, false) }
+                    </div>
                 </div>
                 { table }
             </PageSection>
             <PageSection>
                 <TrustCheck known={known} revision={revision.0} />
             </PageSection>
+            if writable {
+                <PageSection>
+                    <AuditLog revision={revision.0} />
+                </PageSection>
+            }
             { dialog }
         </>
     }
@@ -370,13 +404,13 @@ fn issuers_table(
                     Callback::from(move |_: MouseEvent| open.dispatch(Show::Open(make(record.clone()))))
                 };
                 let status_to = |status: RegistryStatus| {
-                    let did = record.did.clone();
+                    let did = record.id.clone();
                     set_status.reform(move |_: MouseEvent| (did.clone(), status))
                 };
-                let disabled = !writable || busy.has(&record.did);
+                let disabled = !writable || busy.has(&record.id);
                 html! {
-                    <tr class="pf-v6-c-table__tr" key={record.did.clone()}>
-                        { long_cell("DID", &record.did) }
+                    <tr class="pf-v6-c-table__tr" key={record.id.clone()}>
+                        { long_cell("Issuer id", &record.id) }
                         { cell("Name", record.name.clone().unwrap_or_else(|| "-".into())) }
                         { cell("Role", record.role.label()) }
                         { cell("Credential types", record.credential_types.join(", ")) }
@@ -395,9 +429,10 @@ fn issuers_table(
                                     <PfButton size={ButtonSize::Small} variant={ButtonVariant::Secondary} label="Activate" onclick={status_to(RegistryStatus::Active)} {disabled} />
                                 }
                                 if record.status != RegistryStatus::Revoked {
-                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(|r| Open::Revoke(r.did))} {disabled} />
+                                    <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Revoke" onclick={opener(|r| Open::Revoke(r.id))} {disabled} />
                                 }
-                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(|r| Open::Delete(r.did))} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::DangerSecondary} label="Delete" onclick={opener(|r| Open::Delete(r.id))} {disabled} />
+                                <PfButton size={ButtonSize::Small} variant={ButtonVariant::Link} label="Accreditations" onclick={opener(|r| Open::Accreditations(r.id))} />
                             </div>
                         </td>
                     </tr>
@@ -429,13 +464,25 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
     let form = use_state(|| match &props.existing {
         None => IssuerForm::default(),
         Some(r) => IssuerForm {
-            did: r.did.clone(),
+            id: r.id.clone(),
             name: r.name.clone().unwrap_or_default(),
             role: r.role.as_str().to_string(),
             credential_types: r.credential_types.join(", "),
             accredited_by: r.accredited_by.clone().unwrap_or_default(),
             valid_from: r.valid_from.map(date_input).unwrap_or_default(),
             valid_until: r.valid_until.map(date_input).unwrap_or_default(),
+            x509_certificates: r.x509_certificates.join("\n"),
+            ..r.postal_address
+                .as_ref()
+                .map(|a| IssuerForm {
+                    street_address: a.street_address.clone(),
+                    locality: a.locality.clone(),
+                    postal_code: a.postal_code.clone().unwrap_or_default(),
+                    region: a.state_or_province.clone().unwrap_or_default(),
+                    country: a.country.clone(),
+                    ..Default::default()
+                })
+                .unwrap_or_default()
         },
     });
     let errors = use_state(IssuerErrors::default);
@@ -475,13 +522,13 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                 let api = Api::new(&config);
                 // PUT is an upsert: never overwrite an existing record from "Add".
                 if !editing {
-                    match client::send_raw(&config, &api.get_issuer(&record.did)).await {
+                    match client::send_raw(&config, &api.get_issuer(&record.id)).await {
                         Ok((404, _)) => {}
                         Ok((status, _)) if (200..300).contains(&status) => {
                             busy.set(false);
                             failure.set(Some(format!(
                                 "Conflict: {} is already in the registry. Edit it instead.",
-                                record.did
+                                record.id
                             )));
                             return;
                         }
@@ -503,7 +550,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                     Ok(()) => onsaved.emit(format!(
                         "{} {}.",
                         if editing { "Saved" } else { "Added" },
-                        record.did
+                        record.id
                     )),
                     Err(e) => failure.set(Some(e.to_string())),
                 }
@@ -535,7 +582,7 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
     let accreditor_options: Vec<&IssuerRecord> = props
         .accreditors
         .iter()
-        .filter(|r| r.did != form.did.trim())
+        .filter(|r| r.id != form.id.trim())
         .collect();
 
     html! {
@@ -549,13 +596,14 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
             }
             <form id="issuer-form" class="pf-v6-c-form" novalidate=true onsubmit={on_submit(submit)}>
                 <TextField
-                    id="issuer-did"
-                    label="DID"
-                    value={form.did.clone()}
-                    oninput={field(|f, v| f.did = v)}
+                    id="issuer-id"
+                    label="Issuer id"
+                    value={form.id.clone()}
+                    oninput={field(|f, v| f.id = v)}
                     readonly={editing}
-                    error={errors.did.clone()}
-                    placeholder="did:web:issuer.example"
+                    error={errors.id.clone()}
+                    placeholder="did:web:issuer.example or https://issuer.example"
+                    helper={AttrValue::Static("What its credentials name as issuer: a DID for DCP issuers, the credential issuer URL for OID4VCI issuers.")}
                 />
                 <TextField id="issuer-name" label="Name" value={form.name.clone()} oninput={field(|f, v| f.name = v)} />
                 <SelectField
@@ -581,12 +629,12 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                     oninput={field(|f, v| f.accredited_by = v)}
                     error={errors.accredited_by.clone()}
                     list={AttrValue::Static("issuer-accreditors")}
-                    helper={AttrValue::Static("DID of an active Root TAO or TAO (suggestions offered). Leave empty for a Root TAO.")}
+                    helper={AttrValue::Static("Id of an active Root TAO or TAO (suggestions offered). Leave empty for a Root TAO.")}
                 />
                 <datalist id="issuer-accreditors">
                     { for accreditor_options.iter().map(|r| html! {
-                        <option value={r.did.clone()}>
-                            { format!("{} ({})", r.name.clone().unwrap_or_else(|| r.did.clone()), r.role.label()) }
+                        <option value={r.id.clone()}>
+                            { format!("{} ({})", r.name.clone().unwrap_or_else(|| r.id.clone()), r.role.label()) }
                         </option>
                     }) }
                 </datalist>
@@ -610,6 +658,42 @@ fn issuer_dialog(props: &IssuerDialogProps) -> Html {
                         helper={AttrValue::Static("Optional, exclusive (UTC).")}
                     />
                 </div>
+                <TextAreaField
+                    id="issuer-x509"
+                    label="X.509 trust anchors"
+                    value={form.x509_certificates.clone()}
+                    oninput={field(|f, v| f.x509_certificates = v)}
+                    error={errors.x509_certificates.clone()}
+                    helper={AttrValue::Static("Optional. For issuers proven by a certificate chain (e.g. an mDL issuing authority's IACA root): one base64 DER certificate per line.")}
+                />
+                <fieldset class="pf-v6-c-form__fieldset">
+                    <legend class="pf-v6-c-form__label">
+                        <span class="pf-v6-c-form__label-text">{ "Postal address" }</span>
+                    </legend>
+                    <p class="pf-v6-c-form__helper-text">
+                        { "Optional. The registry's ETSI LoTE lists only parties with a postal address." }
+                    </p>
+                    <TextField
+                        id="issuer-street"
+                        label="Street"
+                        value={form.street_address.clone()}
+                        oninput={field(|f, v| f.street_address = v)}
+                        error={errors.postal_address.clone()}
+                    />
+                    <div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-md">
+                        <TextField id="issuer-locality" label="Locality" value={form.locality.clone()} oninput={field(|f, v| f.locality = v)} />
+                        <TextField id="issuer-postal-code" label="Postal code" value={form.postal_code.clone()} oninput={field(|f, v| f.postal_code = v)} />
+                        <TextField id="issuer-region" label="Region" value={form.region.clone()} oninput={field(|f, v| f.region = v)} />
+                        <TextField
+                            id="issuer-country"
+                            label="Country"
+                            value={form.country.clone()}
+                            oninput={field(|f, v| f.country = v)}
+                            placeholder="BE"
+                            helper={AttrValue::Static("ISO 3166-1 alpha-2.")}
+                        />
+                    </div>
+                </fieldset>
             </form>
         </Dialog>
     }
@@ -698,7 +782,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
         Callback::from(move |()| {
             let (d, t) = (did.trim().to_string(), credential_type.trim().to_string());
             let e = (
-                d.is_empty().then(|| "Issuer DID is required.".to_string()),
+                d.is_empty().then(|| "Issuer id is required.".to_string()),
                 t.is_empty()
                     .then(|| "Credential type is required.".to_string()),
             );
@@ -714,7 +798,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
         Callback::from(move |v: String| s.set(v))
     };
     let describe = |chain_did: &str| -> Html {
-        match props.known.iter().find(|r| r.did == chain_did) {
+        match props.known.iter().find(|r| r.id == chain_did) {
             Some(r) => html! {
                 <>
                     <span class="pf-v6-u-text-break-word">{ chain_did.to_string() }</span>
@@ -764,13 +848,13 @@ fn trust_check(props: &TrustCheckProps) -> Html {
         <section aria-labelledby="check-trust-title">
             <Title level={Level::H2} size={Size::Large}><span id="check-trust-title">{ "Check trust" }</span></Title>
             <p class="pf-v6-u-color-200 pf-v6-u-mb-sm">
-                { "Ask the registry whether a DID may issue a credential type, walking its accreditation chain up to a Root TAO." }
+                { "Ask the registry whether an issuer (DID or OID4VCI credential issuer URL) may issue a credential type, walking its accreditation chain up to a Root TAO." }
             </p>
             <form class="pf-v6-c-form" aria-label="Check trust" novalidate=true onsubmit={on_submit(submit)}>
                 <div class="pf-v6-l-grid pf-m-gutter pf-m-all-6-col-on-md">
                     <TextField
                         id="check-did"
-                        label="Issuer DID"
+                        label="Issuer id"
                         value={(*did).clone()}
                         oninput={set(&did)}
                         error={errors.0.clone()}
@@ -786,7 +870,7 @@ fn trust_check(props: &TrustCheckProps) -> Html {
                     />
                 </div>
                 <datalist id="check-known-dids">
-                    { for props.known.iter().map(|r| html! { <option value={r.did.clone()} /> }) }
+                    { for props.known.iter().map(|r| html! { <option value={r.id.clone()} /> }) }
                 </datalist>
                 <div class="pf-v6-c-form__group pf-m-action">
                     <div class="pf-v6-c-form__actions">
@@ -795,6 +879,163 @@ fn trust_check(props: &TrustCheckProps) -> Html {
                 </div>
                 <div role="status" aria-live="polite">{ result }</div>
             </form>
+        </section>
+    }
+}
+
+#[derive(Clone, PartialEq, Properties)]
+struct AccreditationsDialogProps {
+    id: String,
+    onclose: Callback<()>,
+}
+
+/// `GET /v1/issuers/{id}/accreditations`: the issuer's accreditation chain
+/// as registry-signed JWT VCs, to hand to verifiers with its credentials.
+#[function_component(AccreditationsDialog)]
+fn accreditations_dialog(props: &AccreditationsDialogProps) -> Html {
+    let id = props.id.clone();
+    let (loaded, _) = use_load(move |config| async move {
+        let request = Api::new(&config).issuer_accreditations(&id);
+        client::send_json::<Accreditations>(&config, &request).await
+    });
+    let body = match &loaded {
+        Load::Loading => html!(<Loading label="Loading accreditations" />),
+        Load::Failed(message) => {
+            html!(<ErrorAlert title="Could not issue accreditations" message={message.clone()} />)
+        }
+        Load::Ready(a) => html! {
+            <>
+                <p>
+                    { format!("{} accreditation VCs, issuer first, signed by the registry. A verifier checks them with the registry's key alone; they expire with the registry's snapshot TTL.", a.accreditations.len()) }
+                </p>
+                <TextAreaField
+                    id="accreditation-jwts"
+                    label="Accreditation VCs (JWT, one per line)"
+                    value={a.accreditations.join("\n")}
+                    oninput={Callback::noop()}
+                    readonly=true
+                    rows={8}
+                />
+            </>
+        },
+    };
+    html! {
+        <Dialog
+            title="Accreditations"
+            onclose={props.onclose.clone()}
+            footer={html!(<PfButton variant={ButtonVariant::Link} label="Close" onclick={props.onclose.reform(|_| ())} />)}
+        >
+            <p class="pf-v6-u-mb-sm">{ "Issuer: " }<strong class="pf-v6-u-text-break-word">{ props.id.clone() }</strong></p>
+            { body }
+        </Dialog>
+    }
+}
+
+/// Entries per audit log page.
+const AUDIT_PAGE: u32 = 50;
+const AUDIT_COLUMNS: [&str; 6] = ["Seq", "Time", "Actor", "Action", "Issuer id", "Hash"];
+
+#[derive(Clone, PartialEq, Properties)]
+struct AuditLogProps {
+    /// Changes after every registry write: the log reloads from the start.
+    revision: u32,
+}
+
+/// `GET /v1/admin/audit`, newest page last, with "Load more".
+#[function_component(AuditLog)]
+fn audit_log(props: &AuditLogProps) -> Html {
+    let config = use_config();
+    let entries = use_state(Vec::<AuditEntry>::new);
+    let head = use_state(|| None::<u64>);
+    let failure = use_state(|| None::<String>);
+    let loading = use_state(|| false);
+
+    let fetch = {
+        let (config, entries, head, failure, loading) = (
+            config.clone(),
+            entries.clone(),
+            head.clone(),
+            failure.clone(),
+            loading.clone(),
+        );
+        Callback::from(move |(after, reset): (u64, bool)| {
+            let (config, entries, head, failure, loading) = (
+                config.clone(),
+                entries.clone(),
+                head.clone(),
+                failure.clone(),
+                loading.clone(),
+            );
+            loading.set(true);
+            spawn_local(async move {
+                let request = Api::new(&config).audit_log(after, AUDIT_PAGE, None);
+                let result = client::send_json::<AuditPage>(&config, &request).await;
+                loading.set(false);
+                match result {
+                    Ok(page) => {
+                        let mut next = if reset {
+                            Vec::new()
+                        } else {
+                            (*entries).clone()
+                        };
+                        next.extend(page.entries);
+                        entries.set(next);
+                        head.set(page.head.map(|h| h.seq));
+                        failure.set(None);
+                    }
+                    Err(e) => failure.set(Some(e.to_string())),
+                }
+            });
+        })
+    };
+    {
+        let fetch = fetch.clone();
+        use_effect_with(props.revision, move |_| {
+            fetch.emit((0, true));
+            || ()
+        });
+    }
+
+    let last = entries.last().map_or(0, |e| e.seq);
+    let more = head.is_some_and(|h| h > last);
+    let rows = if entries.is_empty() {
+        empty_row(AUDIT_COLUMNS.len(), "No audited writes yet", html!())
+    } else {
+        entries
+            .iter()
+            .map(|e| {
+                html! {
+                    <tr class="pf-v6-c-table__tr" key={e.seq.to_string()}>
+                        { cell("Seq", e.seq.to_string()) }
+                        { cell("Time", timestamp_or(Some(e.at), "")) }
+                        { cell("Actor", e.actor.clone()) }
+                        { cell("Action", e.action.clone()) }
+                        { long_cell("Issuer id", &e.id) }
+                        { long_cell("Hash", &e.hash) }
+                    </tr>
+                }
+            })
+            .collect::<Html>()
+    };
+    let load_more = fetch.reform(move |_: MouseEvent| (last, false));
+    html! {
+        <section aria-labelledby="audit-log-title">
+            <Title level={Level::H2} size={Size::Large}><span id="audit-log-title">{ "Audit log" }</span></Title>
+            <p class="pf-v6-u-color-200 pf-v6-u-mb-sm">
+                { "Every registry write, oldest first, hash-chained by the registry so a changed or removed entry is detectable." }
+            </p>
+            if let Some(message) = &*failure {
+                <ErrorAlert title="Could not load the audit log" message={message.clone()} />
+            }
+            <div class="pf-v6-u-overflow-x-auto">
+                <table class="pf-v6-c-table pf-m-grid-lg pf-m-compact" aria-label="Audit log">
+                    { header_row(&AUDIT_COLUMNS) }
+                    <tbody class="pf-v6-c-table__tbody">{ rows }</tbody>
+                </table>
+            </div>
+            if more {
+                <PfButton variant={ButtonVariant::Secondary} label="Load more" onclick={load_more} disabled={*loading} />
+            }
         </section>
     }
 }

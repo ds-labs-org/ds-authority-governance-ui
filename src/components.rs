@@ -477,6 +477,64 @@ pub fn text_field(props: &TextFieldProps) -> Html {
     }
 }
 
+#[derive(Clone, PartialEq, Properties)]
+pub struct TextAreaFieldProps {
+    pub id: AttrValue,
+    pub label: AttrValue,
+    pub value: AttrValue,
+    pub oninput: Callback<String>,
+    #[prop_or_default]
+    pub error: Option<String>,
+    #[prop_or_default]
+    pub helper: Option<AttrValue>,
+    #[prop_or_default]
+    pub readonly: bool,
+    #[prop_or(4)]
+    pub rows: u32,
+}
+
+/// [`TextField`] for multi-line values: visible `<label for>`, textarea,
+/// helper or error text.
+#[function_component(TextAreaField)]
+pub fn text_area_field(props: &TextAreaFieldProps) -> Html {
+    let oninput = props.oninput.reform(|e: InputEvent| {
+        e.target_unchecked_into::<web_sys::HtmlTextAreaElement>()
+            .value()
+    });
+    let helper_id = format!("{}-helper", props.id);
+    let has_helper = props.error.is_some() || props.helper.is_some();
+    html! {
+        <div class="pf-v6-c-form__group">
+            <div class="pf-v6-c-form__group-label">
+                <label class="pf-v6-c-form__label" for={props.id.clone()}>
+                    <span class="pf-v6-c-form__label-text">{ props.label.clone() }</span>
+                </label>
+            </div>
+            <div class="pf-v6-c-form__group-control">
+                <span class={classes!(
+                    "pf-v6-c-form-control",
+                    "pf-m-textarea",
+                    props.error.is_some().then_some("pf-m-error"),
+                    props.readonly.then_some("pf-m-readonly"),
+                )}>
+                    <textarea
+                        id={props.id.clone()}
+                        name={props.id.clone()}
+                        rows={props.rows.to_string()}
+                        value={props.value.clone()}
+                        readonly={props.readonly}
+                        spellcheck="false"
+                        aria-invalid={props.error.is_some().then_some("true")}
+                        aria-describedby={has_helper.then(|| helper_id.clone())}
+                        {oninput}
+                    />
+                </span>
+                { helper(&helper_id, props.error.as_deref(), props.helper.as_deref()) }
+            </div>
+        </div>
+    }
+}
+
 fn helper(id: &str, error: Option<&str>, helper: Option<&str>) -> Html {
     let (text, class) = match (error, helper) {
         (Some(error), _) => (error, "pf-m-error"),

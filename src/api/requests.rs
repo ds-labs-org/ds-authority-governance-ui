@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::encoding::{base64_url, encode_component};
-use super::models::{CredentialDefinition, IssuerRecord, NewHolder, RegistryStatus, Role};
+use super::models::{CredentialDefinition, IdKind, IssuerRecord, NewHolder, RegistryStatus, Role};
 use super::query::QuerySpec;
 use crate::config::Config;
 
@@ -38,6 +38,7 @@ pub struct IssuerFilter {
     pub role: Option<Role>,
     pub status: Option<RegistryStatus>,
     pub credential_type: Option<String>,
+    pub id_kind: Option<IdKind>,
 }
 
 /// Builds requests from the runtime configuration.
@@ -152,8 +153,8 @@ impl<'a> Api<'a> {
         }
     }
 
-    fn issuer_path(did: &str) -> String {
-        format!("/issuers/{}", encode_component(did))
+    fn issuer_path(id: &str) -> String {
+        format!("/issuers/{}", encode_component(id))
     }
 
     pub fn list_issuers(&self, filter: &IssuerFilter) -> ApiRequest {
@@ -164,6 +165,7 @@ impl<'a> Api<'a> {
                 .credential_type
                 .as_deref()
                 .map(|t| format!("credentialType={}", encode_component(t))),
+            filter.id_kind.map(|k| format!("idKind={}", k.as_str())),
         ]
         .into_iter()
         .flatten()
@@ -183,7 +185,7 @@ impl<'a> Api<'a> {
     pub fn put_issuer(&self, record: &IssuerRecord) -> ApiRequest {
         self.registry(
             Method::Put,
-            &Self::issuer_path(&record.did),
+            &Self::issuer_path(&record.id),
             json_body(record),
         )
     }
@@ -209,6 +211,34 @@ impl<'a> Api<'a> {
                 encode_component(credential_type)
             ),
             None,
+        )
+    }
+
+    /// `GET /v1/issuers/{id}/accreditations`.
+    pub fn issuer_accreditations(&self, id: &str) -> ApiRequest {
+        self.registry(
+            Method::Get,
+            &format!("{}/accreditations", Self::issuer_path(id)),
+            None,
+        )
+    }
+
+    /// `GET /v1/admin/audit?after=N&limit=L[&id=ID]` (admin only).
+    pub fn audit_log(&self, after: u64, limit: u32, id: Option<&str>) -> ApiRequest {
+        let mut path = format!("/admin/audit?after={after}&limit={limit}");
+        if let Some(id) = id {
+            path.push_str(&format!("&id={}", encode_component(id)));
+        }
+        self.registry(Method::Get, &path, None)
+    }
+
+    /// Link to the registry's ETSI TS 119 602 List of Trusted Entities
+    /// (`signed`: the compact JWS form).
+    pub fn lote_url(&self, signed: bool) -> String {
+        format!(
+            "{}/v1/lote{}",
+            trim_base(&self.config.registry_api_path),
+            if signed { ".jws" } else { "" }
         )
     }
 
@@ -394,6 +424,7 @@ mod tests {
             role: Some(Role::RootTao),
             status: Some(RegistryStatus::Suspended),
             credential_type: Some("Membership Credential".into()),
+            id_kind: None,
         };
         assert_eq!(
             api.list_issuers(&filter).url,
@@ -407,6 +438,45 @@ mod tests {
             api.list_issuers(&only_status).url,
             "/api/registry/v1/issuers?status=active"
         );
+    }
+
+    #[test]
+    fn registry_requests_for_oid4vci_ids_audit_accreditations_and_lote() {
+        let c = config();
+        let api = Api::new(&c);
+        // An OID4VCI credential issuer URL is one path segment too.
+        let id = "https://issuer.example/tenants/acme";
+        let seg = "/api/registry/v1/issuers/https%3A%2F%2Fissuer.example%2Ftenants%2Facme";
+        assert_eq!(api.get_issuer(id), req(Method::Get, seg, None));
+        assert_eq!(
+            api.issuer_accreditations(id),
+            req(Method::Get, &format!("{seg}/accreditations"), None)
+        );
+        assert_eq!(
+            api.list_issuers(&IssuerFilter {
+                id_kind: Some(IdKind::Url),
+                ..Default::default()
+            }),
+            req(Method::Get, "/api/registry/v1/issuers?idKind=url", None)
+        );
+        assert_eq!(
+            api.audit_log(0, 50, None),
+            req(
+                Method::Get,
+                "/api/registry/v1/admin/audit?after=0&limit=50",
+                None
+            )
+        );
+        assert_eq!(
+            api.audit_log(50, 50, Some("did:web:h%3A1")),
+            req(
+                Method::Get,
+                "/api/registry/v1/admin/audit?after=50&limit=50&id=did%3Aweb%3Ah%253A1",
+                None
+            )
+        );
+        assert_eq!(api.lote_url(false), "/api/registry/v1/lote");
+        assert_eq!(api.lote_url(true), "/api/registry/v1/lote.jws");
     }
 
     #[test]
@@ -434,7 +504,7 @@ mod tests {
             )
         );
         let record = IssuerRecord {
-            did: did.into(),
+            id: did.into(),
             role: Role::Ti,
             name: Some("H".into()),
             credential_types: vec!["MembershipCredential".into()],
@@ -442,6 +512,8 @@ mod tests {
             valid_from: None,
             valid_until: Some(10),
             status: RegistryStatus::Active,
+            x509_certificates: Vec::new(),
+            postal_address: None,
             updated_at: 99,
         };
         assert_eq!(
@@ -450,7 +522,7 @@ mod tests {
                 Method::Put,
                 seg,
                 Some(json!({
-                    "did": did, "role": "ti", "name": "H",
+                    "id": did, "role": "ti", "name": "H",
                     "credentialTypes": ["MembershipCredential"],
                     "accreditedBy": "did:web:root", "validUntil": 10, "status": "active"
                 }))
