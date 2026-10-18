@@ -48,11 +48,11 @@ test.describe('review findings', () => {
     // "Add trusted issuer" stays enabled while the suspend is in flight.
     await page.getByRole('button', { name: 'Add trusted issuer', exact: true }).click();
     const dlg = dialog(page, 'Add trusted issuer');
-    await dlg.getByLabel('DID', { exact: true }).fill('did:web:half-typed.example');
+    await dlg.getByLabel('Issuer id', { exact: true }).fill('did:web:half-typed.example');
     await expect(rowFor(table(page, 'Trusted issuers'), root)).toContainText(/suspended/i);
     // The suspend's completion handler runs open.set(Open::None): typed input lost.
     await expect(dlg).toBeVisible();
-    await expect(dlg.getByLabel('DID', { exact: true })).toHaveValue('did:web:half-typed.example');
+    await expect(dlg.getByLabel('Issuer id', { exact: true })).toHaveValue('did:web:half-typed.example');
     await tir.remove(root);
   });
 

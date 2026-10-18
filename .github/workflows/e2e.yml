@@ -46,6 +46,8 @@ jobs:
           ref: ${{ inputs.registry_ref || 'main' }}
           token: ${{ secrets.REGISTRY_READ_TOKEN }}
           path: ds-trusted-issuers-registry-rs
+          # vendor/contreforts-core (the registry's Contreforts connector).
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown

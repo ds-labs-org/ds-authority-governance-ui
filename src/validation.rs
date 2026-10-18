@@ -2,7 +2,9 @@
 //! catches obvious mistakes early, with a message next to the field.
 //! Pure functions, unit-tested on the host.
 
-use crate::api::{CredentialDefinition, IssuerRecord, NewHolder, RegistryStatus, Role};
+use crate::api::{
+    CredentialDefinition, IssuerRecord, NewHolder, PostalAddress, RegistryStatus, Role,
+};
 use crate::format::{parse_date_input, split_list};
 
 const DID_MESSAGE: &str = "Must be a DID, e.g. did:web:example.com.";
@@ -71,6 +73,56 @@ pub fn is_did(value: &str) -> bool {
         && !id.chars().any(char::is_whitespace)
 }
 
+/// Whether `value` may name a registry party: a DID (DCP issuers) or an
+/// https OID4VCI credential issuer URL. The registry applies the full
+/// rules; this catches typos before a round trip.
+pub fn is_issuer_id(value: &str) -> bool {
+    is_did(value) || is_credential_issuer_url(value)
+}
+
+/// `https://` and a host, optionally a port and path; no query, fragment
+/// or whitespace.
+fn is_credential_issuer_url(value: &str) -> bool {
+    value.strip_prefix("https://").is_some_and(|rest| {
+        let host = rest.split(['/', ':']).next().unwrap_or_default();
+        !host.is_empty()
+            && !rest
+                .chars()
+                .any(|c| c.is_whitespace() || c == '?' || c == '#')
+    })
+}
+
+const ISSUER_ID_MESSAGE: &str = "Must be a DID or an https credential issuer URL, e.g. did:web:example.com or https://issuer.example.";
+
+fn issuer_id_error(value: &str, required: &str) -> Option<String> {
+    if value.is_empty() {
+        Some(required.to_string())
+    } else if !is_issuer_id(value) {
+        Some(ISSUER_ID_MESSAGE.to_string())
+    } else {
+        None
+    }
+}
+
+/// The non-empty lines of `value`, each one base64 DER certificate.
+fn split_anchors(value: &str) -> Result<Vec<String>, String> {
+    let anchors: Vec<String> = value
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    let base64 = |l: &String| {
+        l.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'/' | b'='))
+    };
+    if anchors.iter().all(base64) {
+        Ok(anchors)
+    } else {
+        Err("One base64 DER certificate per line (no PEM headers).".into())
+    }
+}
+
 fn did_error(value: &str, required: &str) -> Option<String> {
     if value.is_empty() {
         Some(required.to_string())
@@ -106,7 +158,7 @@ pub fn validate_holder(did: &str, name: &str) -> Result<NewHolder, HolderErrors>
 /// Raw values of the trusted issuer form.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssuerForm {
-    pub did: String,
+    pub id: String,
     pub name: String,
     /// Wire value: `root_tao`, `tao` or `ti`.
     pub role: String,
@@ -117,16 +169,27 @@ pub struct IssuerForm {
     pub valid_from: String,
     /// `YYYY-MM-DD` or empty.
     pub valid_until: String,
+    /// X.509 trust anchors, one base64 DER certificate per line.
+    pub x509_certificates: String,
+    /// Postal address; all five empty means none.
+    pub street_address: String,
+    pub locality: String,
+    pub postal_code: String,
+    pub region: String,
+    /// ISO 3166-1 alpha-2, any case.
+    pub country: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct IssuerErrors {
-    pub did: Option<String>,
+    pub id: Option<String>,
     pub role: Option<String>,
     pub credential_types: Option<String>,
     pub accredited_by: Option<String>,
     pub valid_from: Option<String>,
     pub valid_until: Option<String>,
+    pub x509_certificates: Option<String>,
+    pub postal_address: Option<String>,
 }
 
 impl IssuerForm {
@@ -134,12 +197,12 @@ impl IssuerForm {
     // A few Option<String>s, built once per submit: boxing buys nothing.
     #[allow(clippy::result_large_err)]
     pub fn validate(&self, status: RegistryStatus) -> Result<IssuerRecord, IssuerErrors> {
-        let did = self.did.trim();
+        let id = self.id.trim();
         let accredited_by = self.accredited_by.trim();
         let role = Role::parse(self.role.trim());
         let types = split_list(&self.credential_types);
         let mut errors = IssuerErrors {
-            did: did_error(did, "DID is required."),
+            id: issuer_id_error(id, "Issuer id is required."),
             ..Default::default()
         };
 
@@ -158,11 +221,19 @@ impl IssuerForm {
             }
             Some(Role::Tao | Role::Ti) => {
                 errors.accredited_by =
-                    did_error(accredited_by, "Required for a TAO or Trusted issuer.");
+                    issuer_id_error(accredited_by, "Required for a TAO or Trusted issuer.");
             }
             _ => {}
         }
 
+        let x509_certificates = split_anchors(&self.x509_certificates).unwrap_or_else(|e| {
+            errors.x509_certificates = Some(e);
+            Vec::new()
+        });
+        let postal_address = self.postal_address().unwrap_or_else(|e| {
+            errors.postal_address = Some(e);
+            None
+        });
         let valid_from = parse_date_input(&self.valid_from).unwrap_or_else(|e| {
             errors.valid_from = Some(e);
             None
@@ -179,7 +250,7 @@ impl IssuerForm {
 
         match role {
             Some(role) if errors == IssuerErrors::default() => Ok(IssuerRecord {
-                did: did.to_string(),
+                id: id.to_string(),
                 role,
                 name: non_empty(&self.name),
                 credential_types: types,
@@ -187,10 +258,45 @@ impl IssuerForm {
                 valid_from,
                 valid_until,
                 status,
+                x509_certificates,
+                postal_address,
                 updated_at: 0,
             }),
             _ => Err(errors),
         }
+    }
+
+    /// The postal address fields: none when all are empty, else street,
+    /// locality and a two-letter country (upper-cased) are required.
+    fn postal_address(&self) -> Result<Option<PostalAddress>, String> {
+        let street = self.street_address.trim();
+        let locality = self.locality.trim();
+        let country = self.country.trim().to_ascii_uppercase();
+        let postal_code = non_empty(&self.postal_code);
+        let region = non_empty(&self.region);
+        if street.is_empty()
+            && locality.is_empty()
+            && country.is_empty()
+            && postal_code.is_none()
+            && region.is_none()
+        {
+            return Ok(None);
+        }
+        if street.is_empty() || locality.is_empty() || country.is_empty() {
+            return Err(
+                "Street, locality and country are all required for a postal address.".into(),
+            );
+        }
+        if country.len() != 2 || !country.bytes().all(|c| c.is_ascii_uppercase()) {
+            return Err("Country must be a two-letter ISO 3166-1 code, e.g. BE.".into());
+        }
+        Ok(Some(PostalAddress {
+            street_address: street.to_string(),
+            locality: locality.to_string(),
+            postal_code,
+            state_or_province: region,
+            country,
+        }))
     }
 }
 
@@ -304,14 +410,137 @@ mod tests {
 
     fn form() -> IssuerForm {
         IssuerForm {
-            did: "did:web:ti".into(),
+            id: "did:web:ti".into(),
             name: "Issuer".into(),
             role: "ti".into(),
             credential_types: "MembershipCredential, Other".into(),
             accredited_by: "did:web:root".into(),
             valid_from: "".into(),
             valid_until: "2027-01-01".into(),
+            x509_certificates: "".into(),
+            ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_postal_address_is_optional_but_complete() {
+        let rec = form().validate(RegistryStatus::Active).unwrap();
+        assert_eq!(rec.postal_address, None);
+
+        let f = IssuerForm {
+            street_address: " Rue de la Loi 200 ".into(),
+            locality: "Brussels".into(),
+            postal_code: "1049".into(),
+            country: "be".into(),
+            ..form()
+        };
+        let address = f.validate(RegistryStatus::Active).unwrap().postal_address;
+        assert_eq!(
+            address,
+            Some(crate::api::PostalAddress {
+                street_address: "Rue de la Loi 200".into(),
+                locality: "Brussels".into(),
+                postal_code: Some("1049".into()),
+                state_or_province: None,
+                country: "BE".into(),
+            })
+        );
+
+        let partial = IssuerForm {
+            locality: "Brussels".into(),
+            ..form()
+        };
+        let e = partial.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.postal_address.as_deref(),
+            Some("Street, locality and country are all required for a postal address.")
+        );
+
+        let bad_country = IssuerForm {
+            street_address: "Rue de la Loi 200".into(),
+            locality: "Brussels".into(),
+            country: "Belgium".into(),
+            ..form()
+        };
+        let e = bad_country.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.postal_address.as_deref(),
+            Some("Country must be a two-letter ISO 3166-1 code, e.g. BE.")
+        );
+    }
+
+    #[test]
+    fn issuer_ids_are_dids_or_https_urls() {
+        for ok in [
+            "did:web:example.com",
+            "https://issuer.example",
+            "https://issuer.example:8443/tenants/acme",
+        ] {
+            assert!(is_issuer_id(ok), "{ok}");
+        }
+        for bad in [
+            "http://issuer.example",
+            "https://",
+            "https://issuer.example/?x=1",
+            "https://issuer.example/#f",
+            "https://issuer example",
+            "issuer.example",
+        ] {
+            assert!(!is_issuer_id(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn an_oid4vci_issuer_with_anchors_validates() {
+        let f = IssuerForm {
+            id: " https://mdl.example ".into(),
+            accredited_by: "https://tao.example/tenants/x".into(),
+            credential_types: "org.iso.18013.5.1.mDL".into(),
+            x509_certificates: " MIIBVzCB/qADAg== \n\n MIIBWDCB+qADAgECAhQ= ".into(),
+            ..form()
+        };
+        let rec = f.validate(RegistryStatus::Active).unwrap();
+        assert_eq!(rec.id, "https://mdl.example");
+        assert_eq!(
+            rec.accredited_by.as_deref(),
+            Some("https://tao.example/tenants/x")
+        );
+        assert_eq!(
+            rec.x509_certificates,
+            vec![
+                "MIIBVzCB/qADAg==".to_string(),
+                "MIIBWDCB+qADAgECAhQ=".to_string()
+            ]
+        );
+
+        let bad = IssuerForm {
+            id: "http://mdl.example".into(),
+            x509_certificates: "-----BEGIN CERTIFICATE-----".into(),
+            ..form()
+        };
+        let e = bad.validate(RegistryStatus::Active).unwrap_err();
+        assert_eq!(
+            e.id.as_deref(),
+            Some(
+                "Must be a DID or an https credential issuer URL, e.g. did:web:example.com or https://issuer.example."
+            )
+        );
+        assert_eq!(
+            e.x509_certificates.as_deref(),
+            Some("One base64 DER certificate per line (no PEM headers).")
+        );
+        let missing = IssuerForm {
+            id: " ".into(),
+            ..form()
+        };
+        assert_eq!(
+            missing
+                .validate(RegistryStatus::Active)
+                .unwrap_err()
+                .id
+                .as_deref(),
+            Some("Issuer id is required.")
+        );
     }
 
     #[test]
@@ -320,7 +549,7 @@ mod tests {
         assert_eq!(
             rec,
             IssuerRecord {
-                did: "did:web:ti".into(),
+                id: "did:web:ti".into(),
                 role: Role::Ti,
                 name: Some("Issuer".into()),
                 credential_types: vec!["MembershipCredential".into(), "Other".into()],
@@ -328,6 +557,8 @@ mod tests {
                 valid_from: None,
                 valid_until: Some(1798761600),
                 status: RegistryStatus::Suspended,
+                x509_certificates: Vec::new(),
+                postal_address: None,
                 updated_at: 0,
             }
         );
@@ -364,7 +595,7 @@ mod tests {
     #[test]
     fn issuer_form_errors() {
         let f = IssuerForm {
-            did: "nope".into(),
+            id: "nope".into(),
             role: "".into(),
             credential_types: " , ".into(),
             accredited_by: "".into(),
@@ -373,10 +604,7 @@ mod tests {
             ..form()
         };
         let e = f.validate(RegistryStatus::Active).unwrap_err();
-        assert_eq!(
-            e.did.as_deref(),
-            Some("Must be a DID, e.g. did:web:example.com.")
-        );
+        assert_eq!(e.id.as_deref(), Some(ISSUER_ID_MESSAGE));
         assert_eq!(e.role.as_deref(), Some("Choose a role."));
         assert_eq!(
             e.credential_types.as_deref(),
@@ -409,7 +637,7 @@ mod tests {
                 .unwrap_err()
                 .accredited_by
                 .as_deref(),
-            Some("Must be a DID, e.g. did:web:example.com.")
+            Some(ISSUER_ID_MESSAGE)
         );
         let wildcard_ti = IssuerForm {
             credential_types: "*".into(),
