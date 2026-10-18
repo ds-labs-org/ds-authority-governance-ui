@@ -157,9 +157,7 @@ cd e2e && npm ci && REGISTRY_BIN=/path/to/trusted-issuers-registry npm test
 ```
 
 The `e2e` GitHub workflow runs this suite on pull requests and on `main`,
-against `ds-identity-hub-rs` and `ds-trusted-issuers-registry-rs` at their
-`ccr-180333f6-p88qlb` branches, which carry the registry endpoints this
-console uses, until those merge; then back to `main` (other refs via a
-manual run's inputs). The registry repository is private,
+against `ds-identity-hub-rs` and `ds-trusted-issuers-registry-rs` at
+`main` (other refs via a manual run's inputs). The registry repository is private,
 so the workflow needs a `REGISTRY_READ_TOKEN` repository secret with read
 access to it.
