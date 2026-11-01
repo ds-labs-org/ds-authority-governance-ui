@@ -9,16 +9,19 @@
 //! issuer-admin-api, so the browser never has to make a cross-origin
 //! request.
 //!
-//! `bearer_token` is optional. This app is served behind an OIDC gate
+//! This app carries no credentials. It is served behind an OIDC gate
 //! (apisix + Zitadel) that sets a same-origin session cookie, which the
-//! browser sends automatically on every API call - that's the common case
-//! and needs nothing from this struct. `bearer_token`, when present, is an
-//! *additional* `Authorization: Bearer <token>` header for scripted/service
-//! access; it never replaces the cookie.
+//! browser sends on every API call, and the gateway adds the APIs' own
+//! admin credentials. `configuration.json` is a static file any visitor
+//! can read, so a `bearer_token` in it would be public: a file that sets
+//! one is refused (2026-10-16 audit, F6). An explicit `null`, as older
+//! files carry, is accepted.
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(try_from = "RawConfig")]
 pub struct Config {
     pub identity_api_path: String,
     pub issuer_admin_api_path: String,
@@ -30,8 +33,39 @@ pub struct Config {
     /// `v1alpha` path). Optional, defaults to `issuer`.
     #[serde(default = "default_participant_context_id")]
     pub participant_context_id: String,
+}
+
+/// `configuration.json` as written, before [`Config`] refuses a token in it.
+#[derive(Deserialize)]
+struct RawConfig {
+    identity_api_path: String,
+    issuer_admin_api_path: String,
+    #[serde(default = "default_registry_api_path")]
+    registry_api_path: String,
+    #[serde(default = "default_participant_context_id")]
+    participant_context_id: String,
     #[serde(default)]
-    pub bearer_token: Option<String>,
+    bearer_token: Option<IgnoredAny>,
+}
+
+impl TryFrom<RawConfig> for Config {
+    type Error = &'static str;
+
+    fn try_from(raw: RawConfig) -> Result<Self, Self::Error> {
+        if raw.bearer_token.is_some() {
+            return Err(
+                "configuration.json must not set bearer_token: every visitor can read \
+                 this file, so remove the token and rotate it; the gateway adds the APIs' \
+                 credentials",
+            );
+        }
+        Ok(Self {
+            identity_api_path: raw.identity_api_path,
+            issuer_admin_api_path: raw.issuer_admin_api_path,
+            registry_api_path: raw.registry_api_path,
+            participant_context_id: raw.participant_context_id,
+        })
+    }
 }
 
 pub const DEFAULT_REGISTRY_API_PATH: &str = "/api/registry";
@@ -52,37 +86,19 @@ impl Default for Config {
             issuer_admin_api_path: "/api/issuer".to_string(),
             registry_api_path: default_registry_api_path(),
             participant_context_id: default_participant_context_id(),
-            bearer_token: None,
-        }
-    }
-}
-
-impl Config {
-    /// Adds the `Authorization: Bearer <token>` header to `builder` when
-    /// `bearer_token` is set, leaving `builder` untouched otherwise. Every
-    /// API call this app builds should route through this so a configured
-    /// bearer token is applied consistently, on top of (not instead of) the
-    /// browser's own same-origin session cookie.
-    /// `src/api/client.rs` routes every request through here.
-    pub fn authorize(&self, builder: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
-        match &self.bearer_token {
-            Some(token) => builder.bearer_auth(token),
-            None => builder,
         }
     }
 }
 
 /// Fetches and parses `configuration.json` from `origin` (the page's own
-/// origin, from `web_sys::window().location().origin()`).
+/// origin, from `web_sys::window().location().origin()`). The error names
+/// what is wrong with the file, a `bearer_token` included.
 pub async fn fetch_config(origin: &str) -> Result<Config, String> {
     let response = reqwest::get(format!("{origin}/configuration.json"))
         .await
         .map_err(|error| error.to_string())?;
-
-    response
-        .json::<Config>()
-        .await
-        .map_err(|error| error.to_string())
+    let text = response.text().await.map_err(|error| error.to_string())?;
+    serde_json::from_str(&text).map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -90,7 +106,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bearer_token_defaults_to_none_when_absent() {
+    fn the_api_paths_are_read() {
         let config: Config = serde_json::from_str(
             r#"{"identity_api_path": "/api/identity", "issuer_admin_api_path": "/api/issuer"}"#,
         )
@@ -98,7 +114,6 @@ mod tests {
 
         assert_eq!(config.identity_api_path, "/api/identity");
         assert_eq!(config.issuer_admin_api_path, "/api/issuer");
-        assert_eq!(config.bearer_token, None);
     }
 
     /// `configuration.json` is a static file any visitor can read, so a
