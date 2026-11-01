@@ -472,6 +472,17 @@ mod tests {
     }
 
     #[test]
+    fn issuer_record_reads_the_registrys_id_key() {
+        // The registry names a record's party `id` (it still reads `did`).
+        let rec: IssuerRecord = serde_json::from_value(json!({
+            "id": "did:web:ti", "role": "ti", "credentialTypes": ["MembershipCredential"],
+            "accreditedBy": "did:web:root", "status": "active", "updatedAt": 5
+        }))
+        .unwrap();
+        assert_eq!(rec.did, "did:web:ti");
+    }
+
+    #[test]
     fn role_and_status_helpers() {
         assert_eq!(Role::RootTao.as_str(), "root_tao");
         assert_eq!(Role::Tao.as_str(), "tao");
