@@ -53,13 +53,21 @@ test.describe('app shell', () => {
     await expect(page.getByRole('row').filter({ hasText: 'membership-credential' })).toBeVisible();
   });
 
-  test('bearer_token from configuration.json is sent on admin API calls', async ({ page, stack }) => {
+  // configuration.json is public, so a token in it is readable by anyone
+  // (2026-10-16 audit, F6): the gateway adds the admin credentials.
+  test('a bearer_token in configuration.json is refused, never sent', async ({ page, stack }) => {
     await page.route('**/configuration.json', (r) =>
       r.fulfill({ json: { ...stack.uiConfig, bearer_token: 'e2e-config-token' } }),
     );
-    const apiCall = page.waitForRequest((req) => new URL(req.url()).pathname.startsWith('/api/issuer/'));
+    const authorized = [];
+    page.on('request', (req) => {
+      if (req.headers()['authorization']) authorized.push(req.url());
+    });
     await gotoRoute(page, '/credential-definitions');
-    expect((await apiCall).headers()['authorization']).toBe('Bearer e2e-config-token');
+    const alert = errorAlert(page, 'Could not load configuration.json');
+    await expect(alert).toBeVisible();
+    await expect(alert).toContainText('bearer_token');
+    expect(authorized, 'requests the console sent with an Authorization header').toEqual([]);
   });
 
   test('375px: the masthead toggle opens the nav, and a nav click closes it again', async ({ page }) => {

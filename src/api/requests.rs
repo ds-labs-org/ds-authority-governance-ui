@@ -238,7 +238,6 @@ mod tests {
             issuer_admin_api_path: "/api/issuer".into(),
             registry_api_path: "/api/registry".into(),
             participant_context_id: "issuer".into(),
-            bearer_token: None,
         }
     }
 

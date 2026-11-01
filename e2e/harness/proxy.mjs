@@ -52,7 +52,6 @@ export function defaultUiConfig(overrides = {}) {
     issuer_admin_api_path: '/api/issuer',
     registry_api_path: '/api/registry',
     participant_context_id: 'issuer',
-    bearer_token: null,
     ...overrides,
   };
 }

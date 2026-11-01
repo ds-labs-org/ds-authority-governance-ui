@@ -1,6 +1,7 @@
 //! Thin HTTP execution of an [`ApiRequest`]. All decisions (URLs, bodies,
 //! error messages) live in the pure, host-tested modules; this only sends
-//! bytes through reqwest, with [`Config::authorize`] applied to every call.
+//! bytes through reqwest. No credentials are added here: the browser sends
+//! the gateway's session cookie, and the gateway adds the APIs' own.
 
 use serde::de::DeserializeOwned;
 
@@ -9,7 +10,9 @@ use super::requests::{ApiRequest, Method};
 use crate::config::Config;
 
 /// Sends `request` and returns `(status, body)` without judging the status.
-pub async fn send_raw(config: &Config, request: &ApiRequest) -> Result<(u16, String), ApiError> {
+/// `_config` no longer adds anything to the request (it carried a token
+/// until the 2026-10-16 audit, F6); the views still pass it.
+pub async fn send_raw(_config: &Config, request: &ApiRequest) -> Result<(u16, String), ApiError> {
     let method = match request.method {
         Method::Get => reqwest::Method::GET,
         Method::Post => reqwest::Method::POST,
@@ -24,8 +27,7 @@ pub async fn send_raw(config: &Config, request: &ApiRequest) -> Result<(u16, Str
     if let Some(body) = &request.body {
         builder = builder.json(body);
     }
-    let response = config
-        .authorize(builder)
+    let response = builder
         .send()
         .await
         .map_err(|e| ApiError::Network(e.to_string()))?;

@@ -81,8 +81,7 @@ Fetched at runtime from the app's own origin, same pattern as
   "identity_api_path": "/api/identity",
   "issuer_admin_api_path": "/api/issuer",
   "registry_api_path": "/api/registry",
-  "participant_context_id": "issuer",
-  "bearer_token": null
+  "participant_context_id": "issuer"
 }
 ```
 
@@ -99,14 +98,13 @@ Fetched at runtime from the app's own origin, same pattern as
 - `participant_context_id` (optional, default `issuer`) is the hub's
   participant context id. It is sent base64-encoded in every Issuer Admin
   API path (`/v1alpha/participants/{base64(id)}/...`), as EDC does.
-- `bearer_token` is optional (string or `null`/absent). This app is served
-  behind an OIDC gate (apisix + Zitadel) that sets a same-origin session
-  cookie, which the browser sends automatically on every same-origin API
-  call - that's the common case and needs nothing from this field.
-  `bearer_token`, when present, adds an *additional*
-  `Authorization: Bearer <token>` header (see `Config::authorize` in
-  `src/config.rs`) for scripted/service access; it never replaces the
-  cookie.
+- The file carries no credentials. This app is served behind an OIDC gate
+  (apisix + Zitadel) that sets a same-origin session cookie, which the
+  browser sends on every same-origin API call, and the gateway adds the
+  APIs' own admin credentials. Every visitor can read `configuration.json`,
+  so a file that sets `bearer_token` is refused with an error (an explicit
+  `null`, as older files carry, is accepted): remove the token and rotate
+  it.
 
 `src/config.rs` fetches and parses this file once at startup (before the
 routed content renders - see `src/main.rs`), and the result is stored in the
