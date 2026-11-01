@@ -305,6 +305,9 @@ impl RegistryStatus {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuerRecord {
+    /// The registry names it `id`, and still reads `did`, which older
+    /// registries require.
+    #[serde(alias = "id")]
     pub did: String,
     pub role: Role,
     #[serde(default, skip_serializing_if = "Option::is_none")]
