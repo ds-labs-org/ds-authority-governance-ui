@@ -34,6 +34,7 @@ jobs:
           repository: ds-labs-org/ds-trusted-issuers-registry-rs
           ref: ${{ inputs.registry_ref || 'main' }}
           path: ds-trusted-issuers-registry-rs
+          submodules: true
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
