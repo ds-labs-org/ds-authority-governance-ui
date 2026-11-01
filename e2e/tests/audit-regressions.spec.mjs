@@ -1,10 +1,15 @@
 // Non-regression checks for the 2026-10-16 project audit (findings C1, E1,
-// E2, E3), against the real hub and registry binaries and, where the finding
-// is visible there, through the console.
+// E2, E3) and the 2026-11-01 one (E5, M1, M2, M3, N1, N2), against the real
+// hub and registry binaries and, where the finding is visible there, through
+// the console.
 // E4 (the harness could not start the registry) has no spec of its own: the
 // whole suite is its check.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import fs from 'node:fs';
 import http from 'node:http';
+import https from 'node:https';
+import os from 'node:os';
+import path from 'node:path';
 import {
   test, expect, uid, gotoRoute, pageHeading, expectLoaded, table, row, rowFor, dialog, errorAlert, refreshUntil,
 } from './fixtures.mjs';
@@ -165,7 +170,7 @@ async function startParties(names) {
 }
 
 /** A Credential Service hub (the real binary) trusting `trustedDid`. */
-async function startCredentialService(bin, trustedDid) {
+async function startCredentialService(bin, trustedDid, extraArgs = []) {
   const port = await freePort();
   const secret = `cs-${uid('secret')}`;
   const child = spawn(
@@ -176,6 +181,7 @@ async function startCredentialService(bin, trustedDid) {
       '--did-host', `127.0.0.1:${port}`,
       '--sts-client-secret', secret,
       '--trusted-issuer-did', trustedDid,
+      ...extraArgs,
     ],
     { env: envWithoutHubSecrets(), stdio: 'ignore' },
   );
@@ -191,6 +197,43 @@ async function startCredentialService(bin, trustedDid) {
   };
 }
 
+/** A MembershipCredential JWT signed by `issuer` for `subject`, expiring
+ * `expFromNow` seconds from now. */
+function membershipVc(issuer, subject, expFromNow) {
+  const now = nowSecs();
+  return signEs256(
+    {
+      iss: issuer.did, sub: subject, iat: now - 60, nbf: now - 60, exp: now + expFromNow,
+      jti: `urn:uuid:${uid('vc')}`,
+      vc: {
+        '@context': ['https://www.w3.org/2018/credentials/v1'],
+        type: ['VerifiableCredential', 'MembershipCredential'],
+        issuer: issuer.did,
+        credentialSubject: { id: subject },
+      },
+    },
+    issuer.keyPair.privateKey,
+    issuer.keyId,
+  );
+}
+
+/** `deliverer` sends `payload` to the Credential Service `cs`'s Storage API,
+ * filed as `credentialType`; resolves the HTTP status. */
+async function deliverTo(cs, deliverer, payload, credentialType = 'MembershipCredential') {
+  const token = await deliverer.selfIssuedToken(cs.did);
+  const res = await fetch(`${cs.url}/credentials`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      '@context': ['https://w3id.org/dspace-dcp/v1.0/dcp.jsonld'],
+      type: 'CredentialMessage',
+      issuerPid: 'issuer-pid', holderPid: 'holder-pid', status: 'ISSUED',
+      credentials: [{ credentialType, payload, format: 'jwt' }],
+    }),
+  });
+  return res.status;
+}
+
 test.describe('E2: a Credential Service holds and presents only valid credentials of its own', () => {
   test('the Storage API refuses foreign, expired and untrusted credentials; presentations drop expired and repeats', async ({
     stack,
@@ -199,37 +242,8 @@ test.describe('E2: a Credential Service holds and presents only valid credential
     const { parties, close } = await startParties(['issuer', 'rogue']);
     const cs = await startCredentialService(stack.hub.bin, parties.issuer.did);
     try {
-      const vc = (issuer, subject, expFromNow) => {
-        const now = nowSecs();
-        return signEs256(
-          {
-            iss: issuer.did, sub: subject, iat: now - 60, nbf: now - 60, exp: now + expFromNow,
-            jti: `urn:uuid:${uid('vc')}`,
-            vc: {
-              '@context': ['https://www.w3.org/2018/credentials/v1'],
-              type: ['VerifiableCredential', 'MembershipCredential'],
-              issuer: issuer.did,
-              credentialSubject: { id: subject },
-            },
-          },
-          issuer.keyPair.privateKey,
-          issuer.keyId,
-        );
-      };
-      const deliver = async (payload) => {
-        const token = await parties.issuer.selfIssuedToken(cs.did);
-        const res = await fetch(`${cs.url}/credentials`, {
-          method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-          body: JSON.stringify({
-            '@context': ['https://w3id.org/dspace-dcp/v1.0/dcp.jsonld'],
-            type: 'CredentialMessage',
-            issuerPid: 'issuer-pid', holderPid: 'holder-pid', status: 'ISSUED',
-            credentials: [{ credentialType: 'MembershipCredential', payload, format: 'jwt' }],
-          }),
-        });
-        return res.status;
-      };
+      const vc = membershipVc;
+      const deliver = (payload) => deliverTo(cs, parties.issuer, payload);
 
       expect(await deliver(await vc(parties.rogue, cs.did, 3600)), 'signed by an untrusted issuer').toBe(400);
       expect(await deliver(await vc(parties.issuer, cs.did, -3600)), 'already expired').toBe(400);
@@ -326,5 +340,294 @@ test.describe('E3: narrowing a TAO in the console keeps the registry usable', ()
     await tir.remove(ti);
     await tir.remove(tao);
     await tir.remove(root);
+  });
+});
+
+// ---------- 2026-11-01 audit ----------
+
+/** Runs openssl in `dir`. */
+function openssl(dir, args) {
+  execFileSync('openssl', args, { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'] });
+}
+
+/** A P-256 certificate `name` in `dir` (`name.key`, `name.pem`), signed by
+ * `parent` (self-signed when null), with the X.509 v3 extensions `ext`. */
+function certificate(dir, name, parent, ext) {
+  fs.writeFileSync(path.join(dir, `${name}.ext`), `${ext.join('\n')}\n`);
+  openssl(dir, ['ecparam', '-name', 'prime256v1', '-genkey', '-noout', '-out', `${name}.key`]);
+  openssl(dir, ['req', '-new', '-key', `${name}.key`, '-subj', `/CN=${name}`, '-out', `${name}.csr`]);
+  const signer = parent
+    ? ['-CA', `${parent}.pem`, '-CAkey', `${parent}.key`, '-CAcreateserial']
+    : ['-signkey', `${name}.key`];
+  openssl(dir, [
+    'x509', '-req', '-in', `${name}.csr`, ...signer, '-days', '2', '-sha256',
+    '-extfile', `${name}.ext`, '-out', `${name}.pem`,
+  ]);
+  return {
+    pem: path.join(dir, `${name}.pem`),
+    key: path.join(dir, `${name}.key`),
+    /** base64 DER, as in `x5c` and the registry's `x509Certificates`. */
+    der: fs.readFileSync(path.join(dir, `${name}.pem`), 'utf8').replace(/-----[^-]+-----|\s/g, ''),
+  };
+}
+
+const CA_EXT = ['basicConstraints=critical,CA:TRUE', 'keyUsage=critical,keyCertSign,cRLSign', 'subjectKeyIdentifier=hash'];
+
+const credentialRequest = () =>
+  JSON.stringify({
+    '@context': ['https://w3id.org/dspace-dcp/v1.0/dcp.jsonld'],
+    type: 'CredentialRequestMessage',
+    holderPid: uid('hpid'),
+    credentials: [{ id: 'membership-credential' }],
+  });
+
+/** Listens on `host:port` (port 0: any); resolves the bound port. */
+const listen = (server, port, host) =>
+  new Promise((resolve) => server.listen(port, host, () => resolve(server.address().port)));
+const closeServer = (server) =>
+  new Promise((resolve) => {
+    server.closeAllConnections?.();
+    server.close(() => resolve());
+  });
+
+test.describe('M1: a redirect cannot take the hub off its outbound allow-list', () => {
+  test('a DID document that redirects to an unconfigured host is not followed', async ({ stack }) => {
+    test.skip(!stack.hub.bin, 'the probe must be on the hub host (HUB_URL is set)');
+    let hits = 0;
+    const probe = http.createServer((req, res) => {
+      hits += 1;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{}');
+    });
+    const probePort = await listen(probe, 0, '127.0.0.2');
+    const port = await freePort();
+    const attacker = await HolderIdentity.create({
+      name: 'attacker', origin: `http://127.0.0.1:${port}`, hostPort: `127.0.0.1:${port}`,
+    });
+    const redirector = http.createServer((req, res) => {
+      res.writeHead(302, { location: `http://127.0.0.2:${probePort}${req.url}` });
+      res.end();
+    });
+    await listen(redirector, port, '127.0.0.1');
+    try {
+      const res = await fetch(`${stack.hub.url}/credentials`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${await attacker.selfIssuedToken(stack.hub.did)}`,
+          'content-type': 'application/json',
+        },
+        body: credentialRequest(),
+      });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.status).toBeLessThan(500);
+      expect(hits, 'requests the hub sent to 127.0.0.2, which no part of its configuration names').toBe(0);
+    } finally {
+      await closeServer(redirector);
+      await closeServer(probe);
+    }
+  });
+});
+
+test.describe('M2: a holder rejected in the console stays rejected', () => {
+  test('respelling its DID (%3a for %3A) gets neither a credential nor a second record', async ({
+    page, holders, hub, stack,
+  }) => {
+    const h = await holders.create(uid('holder'));
+    expect((await holders.requestCredential(h.name, { issuerUrl: stack.hub.url })).status).toBe(201);
+    await gotoRoute(page, '/holders');
+    await expectLoaded(page);
+    await row(table(page, 'Pending approval'), h.did).getByRole('button', { name: 'Reject', exact: true }).click();
+    const dlg = dialog(page, 'Reject holder');
+    await dlg.getByRole('button', { name: 'Reject', exact: true }).click();
+    await expect(dlg).toBeHidden();
+    await expect(row(table(page, 'All holders'), h.did)).toContainText(/rejected/i);
+
+    const respelled = h.did.replace('%3A', '%3a');
+    expect(respelled).not.toBe(h.did);
+    const { token } = await holders.token(h.name, stack.hub.did, { iss: respelled, sub: respelled });
+    const res = await fetch(`${stack.hub.url}/credentials`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: credentialRequest(),
+    });
+    expect(res.status, await res.text()).toBe(403);
+    const same = (await hub.holders()).filter((x) => x.did.toLowerCase() === h.did.toLowerCase());
+    expect(same, 'one holder record for the party').toHaveLength(1);
+    expect(await holders.deliveries(h.name)).toHaveLength(0);
+  });
+});
+
+test.describe('M3: issued credentials carry their issuance date', () => {
+  test('a credential approved in the console, and one redeemed over OID4VCI, have nbf and issuanceDate', async ({
+    page, holders, stack,
+  }) => {
+    const xsd = (secs) => new Date(secs * 1000).toISOString().replace('.000Z', 'Z');
+    const expectDates = (jws, where) => {
+      const { payload } = decodeJws(jws);
+      expect(payload.nbf, `${where}: nbf`).toBe(payload.iat);
+      expect(payload.vc.issuanceDate, `${where}: issuanceDate`).toBe(xsd(payload.iat));
+      expect(payload.vc.expirationDate, `${where}: expirationDate`).toBe(xsd(payload.exp));
+    };
+
+    const h = await holders.create(uid('holder'));
+    expect((await holders.requestCredential(h.name, { issuerUrl: stack.hub.url })).status).toBe(201);
+    await gotoRoute(page, '/holders');
+    await expectLoaded(page);
+    await row(table(page, 'Pending approval'), h.did).getByRole('button', { name: 'Approve', exact: true }).click();
+    await expect(row(table(page, 'All holders'), h.did)).toContainText(/approved/i);
+    let deliveries = [];
+    await expect(async () => {
+      deliveries = await holders.deliveries(h.name);
+      expect(deliveries).toHaveLength(1);
+    }).toPass({ timeout: 10_000 });
+    expectDates(deliveries[0].message.credentials[0].payload, 'DCP');
+
+    const redeemed = await redeemOffer(stack, await newWallet());
+    expect(redeemed.status, JSON.stringify(redeemed.body)).toBe(200);
+    expectDates(redeemed.body.credentials[0].credential, 'OID4VCI');
+  });
+});
+
+test.describe('N2: the Storage API files a credential only under its own type', () => {
+  test('a MembershipCredential labelled DataProcessorCredential is refused', async ({ stack }) => {
+    test.skip(!stack.hub.bin, 'needs the hub binary (HUB_URL is set)');
+    const { parties, close } = await startParties(['issuer']);
+    const cs = await startCredentialService(stack.hub.bin, parties.issuer.did);
+    try {
+      const vc = await membershipVc(parties.issuer, cs.did, 3600);
+      expect(await deliverTo(cs, parties.issuer, vc, 'DataProcessorCredential'), 'filed under another type').toBe(400);
+      expect(await deliverTo(cs, parties.issuer, vc, 'MembershipCredential'), 'filed under its own type').toBe(200);
+    } finally {
+      cs.stop();
+      await close();
+    }
+  });
+});
+
+test.describe('E5: presentations work with --insecure-http false', () => {
+  test("a verifier forwarding the hub's own STS token gets the credential, every DID over https", async ({
+    stack,
+  }) => {
+    test.skip(!stack.hub.bin, 'needs the hub binary (HUB_URL is set)');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-e5-'));
+    const root = certificate(dir, 'tls-root', null, CA_EXT);
+    const leaf = certificate(dir, 'tls-leaf', 'tls-root', [
+      'basicConstraints=critical,CA:FALSE', 'keyUsage=critical,digitalSignature',
+      'extendedKeyUsage=serverAuth', 'subjectAltName=IP:127.0.0.1',
+    ]);
+
+    // The issuer and the verifier publish their DID documents over https only.
+    const port = await freePort();
+    const parties = {};
+    for (const name of ['issuer', 'verifier']) {
+      parties[name] = await HolderIdentity.create({
+        name, origin: `https://127.0.0.1:${port}`, hostPort: `127.0.0.1:${port}`,
+      });
+    }
+    const server = https.createServer(
+      { key: fs.readFileSync(leaf.key), cert: fs.readFileSync(leaf.pem) },
+      (req, res) => {
+        const party = parties[req.url.split('/')[1]];
+        if (party && req.url === `/${party.name}/did.json`) {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify(party.didDocument()));
+        }
+        res.writeHead(404);
+        res.end();
+      },
+    );
+    await listen(server, port, '127.0.0.1');
+    const cs = await startCredentialService(stack.hub.bin, parties.issuer.did, [
+      '--insecure-http', 'false', '--extra-root-cert', root.pem,
+    ]);
+    try {
+      const vc = await membershipVc(parties.issuer, cs.did, 3600);
+      expect(await deliverTo(cs, parties.issuer, vc), 'stored, the issuer resolved over https').toBe(200);
+
+      const sts = await (
+        await fetch(`${cs.url}/sts/token`, {
+          method: 'POST',
+          body: new URLSearchParams({
+            grant_type: 'client_credentials',
+            client_id: 'tck-client',
+            client_secret: cs.secret,
+            audience: parties.verifier.did,
+            bearer_access_scope: MEMBERSHIP_SCOPE,
+          }),
+        })
+      ).json();
+      const nested = decodeJws(sts.access_token).payload.token;
+      const outer = await parties.verifier.selfIssuedToken(cs.did, { token: nested });
+      const res = await fetch(`${cs.url}/presentations/query`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${outer}`, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          '@context': ['https://w3id.org/dspace-dcp/v1.0/dcp.jsonld'],
+          type: 'PresentationQueryMessage',
+          scope: [MEMBERSHIP_SCOPE],
+        }),
+      });
+      const body = await res.text();
+      expect(res.status, body).toBe(200);
+      const vp = decodeJws(JSON.parse(body).presentation[0]).payload;
+      expect(vp.vp.verifiableCredential).toEqual([vc]);
+    } finally {
+      cs.stop();
+      await closeServer(server);
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+test.describe('N1: an X.509 chain is judged by the party whose anchor is nearest the leaf', () => {
+  test("an issuer suspended in the console stops being trusted through its TAO's root anchor", async ({
+    page, tir, stack,
+  }) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-n1-'));
+    try {
+      const rootCa = certificate(dir, 'root-ca', null, CA_EXT);
+      const issuingCa = certificate(dir, 'issuing-ca', 'root-ca', [...CA_EXT, 'authorityKeyIdentifier=keyid']);
+      const signer = certificate(dir, 'signer', 'issuing-ca', [
+        'basicConstraints=critical,CA:FALSE', 'keyUsage=critical,digitalSignature',
+      ]);
+      const root = `did:web:${uid('root')}.example`;
+      const tao = `did:web:${uid('tao')}.example`;
+      const ti = `did:web:${uid('ti')}.example`;
+      for (const rec of [
+        { did: root, role: 'root_tao', credentialTypes: ['*'], status: 'active' },
+        {
+          did: tao, role: 'tao', credentialTypes: ['MembershipCredential'], accreditedBy: root,
+          status: 'active', x509Certificates: [rootCa.der],
+        },
+        {
+          did: ti, role: 'ti', credentialTypes: ['MembershipCredential'], accreditedBy: tao,
+          status: 'active', x509Certificates: [issuingCa.der],
+        },
+      ]) {
+        const put = await tir.put(rec);
+        expect(put.status, put.text).toBe(201);
+      }
+      const check = async () =>
+        (
+          await fetch(`${stack.registry.url}/v1/x509/check`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ x5c: [signer.der, issuingCa.der], credentialType: 'MembershipCredential' }),
+          })
+        ).json();
+      expect(await check()).toMatchObject({ trusted: true, chain: [ti, tao, root] });
+
+      await gotoRoute(page, '/trusted-issuers');
+      await expectLoaded(page);
+      await rowFor(table(page, 'Trusted issuers'), ti).getByRole('button', { name: 'Suspend', exact: true }).click();
+      await expect(rowFor(table(page, 'Trusted issuers'), ti)).toContainText(/suspended/i);
+      expect(await check()).toMatchObject({ trusted: false, chain: [ti] });
+
+      await tir.remove(ti);
+      await tir.remove(tao);
+      await tir.remove(root);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
