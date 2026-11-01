@@ -101,14 +101,22 @@ mod tests {
         assert_eq!(config.bearer_token, None);
     }
 
+    /// `configuration.json` is a static file any visitor can read, so a
+    /// token in it is public (2026-10-16 audit, F6). The gateway adds the
+    /// admin credentials: a `bearer_token` here is refused, never sent.
     #[test]
-    fn bearer_token_is_read_when_present() {
-        let config: Config = serde_json::from_str(
+    fn a_bearer_token_in_the_configuration_is_refused() {
+        let error = serde_json::from_str::<Config>(
             r#"{"identity_api_path": "/api/identity", "issuer_admin_api_path": "/api/issuer", "bearer_token": "secret"}"#,
         )
-        .unwrap();
+        .unwrap_err();
+        assert!(error.to_string().contains("bearer_token"), "{error}");
 
-        assert_eq!(config.bearer_token, Some("secret".to_string()));
+        let config: Config = serde_json::from_str(
+            r#"{"identity_api_path": "/api/identity", "issuer_admin_api_path": "/api/issuer", "bearer_token": null}"#,
+        )
+        .expect("an explicit null, as older configuration.json files carry, is accepted");
+        assert_eq!(config, Config::default());
     }
 
     #[test]
