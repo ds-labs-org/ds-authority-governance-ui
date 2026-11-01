@@ -10,6 +10,7 @@
 //   REGISTRY_BIN     required unless REGISTRY_URL is set
 //   UI_DIST          default <repo>/dist
 //   HUB_URL + HUB_ADMIN_URL + HUB_ADMIN_TOKEN       reuse a running hub instead
+//     (+ HUB_STS_CLIENT_ID + HUB_STS_CLIENT_SECRET for its operator credentials)
 //   REGISTRY_URL + REGISTRY_ADMIN_TOKEN             reuse a running registry instead
 //   HUB_EXTRA_ARGS   extra whitespace-separated args for the hub
 //   E2E_STACK_DIR    default <e2e>/.stack (state file + backend logs)
@@ -108,15 +109,27 @@ async function startHub() {
     if (!process.env.HUB_ADMIN_URL || !process.env.HUB_ADMIN_TOKEN) {
       throw new Error('HUB_URL needs HUB_ADMIN_URL and HUB_ADMIN_TOKEN too');
     }
-    return { url: process.env.HUB_URL, adminUrl: process.env.HUB_ADMIN_URL, adminToken: process.env.HUB_ADMIN_TOKEN };
+    return {
+      url: process.env.HUB_URL,
+      adminUrl: process.env.HUB_ADMIN_URL,
+      adminToken: process.env.HUB_ADMIN_TOKEN,
+      stsClientId: process.env.HUB_STS_CLIENT_ID,
+      stsClientSecret: process.env.HUB_STS_CLIENT_SECRET,
+    };
   }
   const bin = process.env.HUB_BIN ? path.resolve(process.env.HUB_BIN) : DEFAULT_HUB_BIN;
   const [port, adminPort] = [await freePort(), await freePort()];
   const adminToken = token();
+  // Operator credentials for the embedded STS and the OID4VCI operator
+  // endpoints: never the hub's TCK defaults.
+  const stsClientId = 'e2e-operator';
+  const stsClientSecret = token();
   const args = [
     'issuer-service',
     '--bind', `127.0.0.1:${port}`,
     '--did-host', `127.0.0.1:${port}`,
+    '--sts-client-id', stsClientId,
+    '--sts-client-secret', stsClientSecret,
     // clap ArgAction::Set: the flag takes a value (it already defaults to true).
     '--insecure-http', 'true',
     '--admin-bind', `127.0.0.1:${adminPort}`,
@@ -138,7 +151,7 @@ async function startHub() {
       ).ok,
     { proc, timeoutMs: 15_000 },
   );
-  return { url, adminUrl, adminToken, proc };
+  return { url, adminUrl, adminToken, stsClientId, stsClientSecret, proc };
 }
 
 async function startRegistry() {
@@ -156,7 +169,9 @@ async function startRegistry() {
   const proc = spawnLogged(
     'registry',
     path.resolve(process.env.REGISTRY_BIN),
-    ['--bind', `127.0.0.1:${port}`, '--did-host', `127.0.0.1:${port}`],
+    // The registry only accepts a DNS name in --did-host (no IP literal),
+    // so its did:web is `did:web:localhost%3A<port>`; it still binds 127.0.0.1.
+    ['--bind', `127.0.0.1:${port}`, '--did-host', `localhost:${port}`],
     { TRUSTED_ISSUERS_ADMIN_TOKEN: adminToken },
   );
   const url = `http://127.0.0.1:${port}`;
@@ -213,6 +228,8 @@ export async function startStack({ log = () => {} } = {}) {
         did: issuerDid,
         adminUrl: hub.adminUrl,
         adminToken: hub.adminToken,
+        stsClientId: hub.stsClientId ?? null,
+        stsClientSecret: hub.stsClientSecret ?? null,
         participantContextId: PARTICIPANT_CONTEXT_ID,
         log: hub.proc?.logFile ?? null,
       },

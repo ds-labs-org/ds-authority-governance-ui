@@ -305,6 +305,9 @@ impl RegistryStatus {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct IssuerRecord {
+    /// The registry names it `id`, and still reads `did`, which older
+    /// registries require.
+    #[serde(alias = "id")]
     pub did: String,
     pub role: Role,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -469,6 +472,17 @@ mod tests {
                 "accreditedBy": "did:web:root", "status": "active"
             })
         );
+    }
+
+    #[test]
+    fn issuer_record_reads_the_registrys_id_key() {
+        // The registry names a record's party `id` (it still reads `did`).
+        let rec: IssuerRecord = serde_json::from_value(json!({
+            "id": "did:web:ti", "role": "ti", "credentialTypes": ["MembershipCredential"],
+            "accreditedBy": "did:web:root", "status": "active", "updatedAt": 5
+        }))
+        .unwrap();
+        assert_eq!(rec.did, "did:web:ti");
     }
 
     #[test]
